@@ -16,6 +16,23 @@ protocol ProfileActivating: Sendable {
 /// Auslesen des aktiven Profils oder der vorhandenen Profile (SPEC §9).
 /// Deshalb sind Profilnamen im UI Freitext und die App spricht immer von
 /// „zuletzt gesendet", nie von „aktiv".
+///
+/// Der Handler kann laut Handbuch (im App-Bundle unter
+/// `Contents/Resources/de.lproj/manual.pdf`, Seite 133–136) mehr als das eine
+/// hier genutzte Kommando:
+///
+///     adashboard:activate_call_profile?name=<NAME>     genutzt
+///     adashboard:toggle_do_not_disturb?value=[on|off]  Anrufschutz
+///     adashboard:group_login?name=<NAME>               Gruppe einbuchen
+///     adashboard:group_logout?name=<NAME>              Gruppe ausbuchen
+///     adashboard:activate_dial_rule?name=<NAME>        Wahlregel
+///     adashboard:toggle_incognito?value=[off|on]       Rufnummernübertragung
+///     adashboard:set_controlling_account?name=<NAME>   aktives Konto
+///     adashboard:accept | reject | hangup | hold | switch | transfer | conference
+///     adashboard:dial?number=<RUFNUMMER>
+///
+/// Alle folgen derselben Form `scheme:aktion?parameter=wert` und sind damit
+/// über `makeURL` erreichbar, falls später eines davon gebraucht wird.
 final class AgfeoBridge: ProfileActivating {
     /// Ermittelt mit `osascript -e 'id of app "AGFEO-Dashboard"'` (13.08.2026),
     /// gegengeprüft gegen `CFBundleURLTypes` in der Info.plist des Dashboards,

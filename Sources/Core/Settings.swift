@@ -204,6 +204,17 @@ struct Settings: Codable, Equatable, Sendable {
     /// Zeitfenster, in dem die Automatik überhaupt arbeitet.
     var workingHours = WorkingHours()
 
+    // MARK: Tastenkurzbefehl
+    //
+    // Schaltet auf ein festes Profil und hält es, bis dieselbe Taste erneut
+    // gedrückt wird. Gedacht für „ich bin gleich zurück“, ohne die Menüleiste
+    // anzusteuern.
+
+    /// Nummer aus `HotKeyChoice`; 0 heißt: kein Kurzbefehl.
+    var hotKeyChoice: Int = 0
+    /// Profil, auf das der Kurzbefehl schaltet. Leer heißt: aus.
+    var hotKeyProfile: String = ""
+
     /// Auslieferungszustand des Regelwerks.
     ///
     /// `Presenting` gehört zwingend dazu: Teilt man während eines Gesprächs den
@@ -253,6 +264,13 @@ struct Settings: Codable, Equatable, Sendable {
         awayOnIdle = try c.decodeIfPresent(Bool.self, forKey: .awayOnIdle) ?? d.awayOnIdle
         idleThresholdSeconds = try c.decodeIfPresent(Int.self, forKey: .idleThresholdSeconds) ?? d.idleThresholdSeconds
         workingHours = try c.decodeIfPresent(WorkingHours.self, forKey: .workingHours) ?? d.workingHours
+        hotKeyChoice = try c.decodeIfPresent(Int.self, forKey: .hotKeyChoice) ?? d.hotKeyChoice
+        hotKeyProfile = try c.decodeIfPresent(String.self, forKey: .hotKeyProfile) ?? d.hotKeyProfile
+    }
+
+    /// Ist ein Kurzbefehl vollständig eingerichtet?
+    var hasHotKey: Bool {
+        hotKeyChoice != 0 && !hotKeyProfile.isEmpty
     }
 
     /// Wird der Auslöser „Nicht am Platz“ überhaupt gebraucht? Ohne aktive

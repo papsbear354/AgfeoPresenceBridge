@@ -357,6 +357,31 @@ private struct BehaviourTab: View {
                 .foregroundStyle(.secondary)
             }
 
+            Section {
+                Picker("Tastenkurzbefehl", selection: $model.settings.hotKeyChoice) {
+                    ForEach(HotKeyChoice.all) { choice in
+                        Text(choice.label).tag(choice.id)
+                    }
+                }
+                if model.settings.hotKeyChoice != 0 {
+                    Picker("Schaltet auf", selection: $model.settings.hotKeyProfile) {
+                        Text("— kein Profil —").tag("")
+                        ForEach(model.settings.knownProfiles, id: \.self) { profile in
+                            Text(profile).tag(profile)
+                        }
+                    }
+                }
+            } header: {
+                Text("Tastenkurzbefehl")
+            } footer: {
+                Text("Ein Druck schaltet auf das gewählte Profil und hält es — die "
+                     + "Automatik bleibt so lange außen vor. Ein zweiter Druck gibt sie "
+                     + "wieder frei. Funktioniert systemweit und ohne Freigabe unter "
+                     + "„Bedienungshilfen“.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Manuelles Schalten") {
                 Picker("Ein manuell gewähltes Profil", selection: $model.settings.manualMode) {
                     ForEach(ManualMode.allCases, id: \.self) { mode in

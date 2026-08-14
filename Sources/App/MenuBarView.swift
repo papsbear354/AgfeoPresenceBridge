@@ -69,8 +69,9 @@ struct MenuBarView: View {
         }
         .disabled(model.isSending)
 
-        if let until = model.holdUntil {
-            Button("Befristung beenden (bis \(Self.time.string(from: until)))") {
+        if let held = model.heldProfile {
+            let suffix = model.holdUntil.map { " bis \(Self.time.string(from: $0))" } ?? ""
+            Button("„\(held)“ gehalten\(suffix) — Automatik übernehmen lassen") {
                 Task { await model.endHold() }
             }
         }

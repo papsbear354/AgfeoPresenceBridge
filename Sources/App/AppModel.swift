@@ -25,6 +25,10 @@ final class AppModel: ObservableObject {
             if settings.workingHours != oldValue.workingHours {
                 checkSchedule()
             }
+            if settings.hotKeyChoice != oldValue.hotKeyChoice
+                || settings.hotKeyProfile != oldValue.hotKeyProfile {
+                updateHotKey()
+            }
             updateDeskWatching()
             if settings.tenantId != oldValue.tenantId || settings.clientId != oldValue.clientId {
                 rebuildAuthClient()
@@ -54,8 +58,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var deskPresence: DeskPresence = .atDesk
     /// Außerhalb der Arbeitszeit ruht die Automatik vollständig.
     @Published private(set) var withinWorkingHours = true
-    /// Läuft eine Befristung, steht hier ihr Ende.
+    /// Läuft eine Befristung, steht hier ihr Ende. Ohne Ende bedeutet ein
+    /// gesetztes `heldProfile`: per Tastenkurzbefehl gehalten.
     @Published private(set) var holdUntil: Date?
+    @Published private(set) var heldProfile: String?
     /// Die letzten Schaltvorgänge für das Menü.
     @Published private(set) var history: [SwitchRecord] = []
 
@@ -99,6 +105,7 @@ final class AppModel: ObservableObject {
         reconcileLaunchAtLogin()
         withinWorkingHours = loaded.workingHours.contains(Date())
         startScheduleWatch()
+        updateHotKey()
         updateDeskWatching()
         Task { await restoreSession() }
     }
@@ -350,6 +357,35 @@ final class AppModel: ObservableObject {
         await refreshFromController()
     }
 
+    /// Tastenkurzbefehl: schaltet auf das eingestellte Profil und hält es, bis
+    /// dieselbe Taste erneut gedrückt wird.
+    func toggleHotKeyProfile() async {
+        guard settings.hasHotKey else { return }
+        if heldProfile != nil {
+            await endHold()
+            return
+        }
+        isSending = true
+        defer { isSending = false }
+        clearHold()
+        await controller.sendManual(profile: settings.hotKeyProfile, holdsAutomation: true)
+        await refreshFromController()
+    }
+
+    private func updateHotKey() {
+        let choice = HotKeyChoice.choice(id: settings.hotKeyChoice)
+        guard settings.hasHotKey else {
+            HotKeyCenter.shared.unregister()
+            return
+        }
+        HotKeyCenter.shared.register(
+            keyCode: choice.keyCode, modifiers: choice.modifiers
+        ) { [weak self] in
+            Task { @MainActor in await self?.toggleHotKeyProfile() }
+        }
+        Log.info(.app, "Tastenkurzbefehl \(choice.label) schaltet auf \"\(settings.hotKeyProfile)\"")
+    }
+
     private func startHold(for duration: TimeInterval) {
         holdTimer?.invalidate()
         holdUntil = Date().addingTimeInterval(duration)
@@ -380,6 +416,7 @@ final class AppModel: ObservableObject {
         lastSentProfile = await controller.lastSentProfile
         lastSentAt = await controller.lastSentAt
         history = await controller.history
+        heldProfile = await controller.heldProfile
 
         let failed = await controller.lastSendFailed
         // Nur beim Übergang melden, nicht bei jedem Poll erneut.
