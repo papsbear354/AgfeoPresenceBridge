@@ -1,6 +1,6 @@
 name: Release
 
-# Ausgelöst durch einen Versions-Tag: git tag v1.7.0 && git push --tags
+# Ausgelöst durch einen Versions-Tag: git tag v1.8.0 && git push --tags
 on:
   push:
     tags: ["v*"]
@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  macos:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -64,7 +64,58 @@ jobs:
           files: build/*.dmg
           generate_release_notes: true
           body: |
-            Menüleisten-App für macOS 13 oder neuer.
+            **macOS** — DMG öffnen, App nach „Programme“ ziehen, starten.
+            Signiert und notariell beglaubigt; ab macOS 13.
 
-            DMG öffnen, App nach „Programme“ ziehen, starten. Die Einrichtung
-            führt beim ersten Start durch die nötigen Schritte.
+            **Windows** — die EXE herunterladen und starten. Sie bringt alles
+            mit, eine .NET-Installation ist nicht nötig. Windows zeigt beim
+            ersten Start eine SmartScreen-Warnung, weil die Datei nicht
+            signiert ist: „Weitere Informationen“ → „Trotzdem ausführen“.
+
+            Die Einrichtung führt beim ersten Start durch die nötigen Schritte.
+
+  windows:
+    runs-on: windows-2022
+    defaults:
+      run:
+        working-directory: windows
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Version aus dem Tag ableiten
+        id: version
+        shell: bash
+        run: echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      # Kein Release aus rotem Stand.
+      - name: Tests
+        run: dotnet test tests/AgfeoPresenceBridge.Core.Tests --verbosity minimal
+
+      # Mit eigener Laufzeitumgebung, damit die Datei ohne vorinstalliertes
+      # .NET läuft — beim Weitergeben zählt das mehr als die Dateigröße.
+      - name: Programm bauen
+        run: >
+          dotnet publish src/AgfeoPresenceBridge.Windows
+          -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true
+          -p:EnableCompressionInSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:Version=${{ steps.version.outputs.value }}
+          -o publish
+
+      - name: Umbenennen
+        shell: pwsh
+        run: |
+          Move-Item publish/AgfeoPresenceBridge.exe `
+            "publish/AgfeoPresenceBridge-${{ steps.version.outputs.value }}-win-x64.exe"
+          Get-ChildItem publish | Select-Object Name, @{n='MB';e={[math]::Round($_.Length/1MB,1)}}
+
+      - name: Veröffentlichen
+        uses: softprops/action-gh-release@v2
+        with:
+          files: windows/publish/*.exe
