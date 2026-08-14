@@ -22,6 +22,16 @@ BUILD_DIR="build"
 APP_NAME="AGFEOPresenceBridge"
 DMG="$BUILD_DIR/$APP_NAME-$VERSION.dmg"
 
+# Beim Bauen ad-hoc signieren: project.yml verlangt sonst ein Zertifikat des
+# eingetragenen Teams, das auf einem CI-Runner nicht existiert. Die
+# auslieferbare Signatur setzt ohnehin erst der Schritt weiter unten.
+ADHOC=(
+    CODE_SIGN_IDENTITY="-"
+    CODE_SIGN_STYLE=Manual
+    DEVELOPMENT_TEAM=""
+    PROVISIONING_PROFILE_SPECIFIER=""
+)
+
 echo "▸ Version $VERSION"
 
 command -v xcodegen >/dev/null || { echo "xcodegen fehlt: brew install xcodegen"; exit 1; }
@@ -29,13 +39,14 @@ xcodegen generate
 
 echo "▸ Tests"
 xcodebuild -project "$APP_NAME.xcodeproj" -scheme "$APP_NAME" \
-    -configuration Debug test 2>&1 | grep -E "Test run|TEST (SUCCEEDED|FAILED)" || true
+    -configuration Debug "${ADHOC[@]}" test 2>&1 |
+    grep -E "Test run|TEST (SUCCEEDED|FAILED)" || true
 
 echo "▸ Release-Build"
 rm -rf "$BUILD_DIR"
 xcodebuild -project "$APP_NAME.xcodeproj" -scheme "$APP_NAME" \
     -configuration Release -derivedDataPath "$BUILD_DIR" \
-    MARKETING_VERSION="$VERSION" \
+    MARKETING_VERSION="$VERSION" "${ADHOC[@]}" \
     build >/dev/null
 
 APP="$BUILD_DIR/Build/Products/Release/$APP_NAME.app"
@@ -43,7 +54,7 @@ APP="$BUILD_DIR/Build/Products/Release/$APP_NAME.app"
 
 if [ -n "${SIGN_IDENTITY:-}" ]; then
     echo "▸ Signieren"
-    # Tiefe Signatur mit Hardened Runtime — beides Voraussetzung für die
+    # Hardened Runtime und sicherer Zeitstempel sind Voraussetzung für die
     # Notarisierung.
     codesign --force --deep --options runtime --timestamp \
         --sign "$SIGN_IDENTITY" "$APP"
