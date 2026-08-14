@@ -9,7 +9,7 @@ namespace AgfeoPresenceBridge.Core;
 /// </remarks>
 public static class Log
 {
-    private static readonly object Gate = new();
+    private static readonly Lock Gate = new();
     private const long MaxBytes = 1_000_000;
     private const int ArchiveCount = 4;
 

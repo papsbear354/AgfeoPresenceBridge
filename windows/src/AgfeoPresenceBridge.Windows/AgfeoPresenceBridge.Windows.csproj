@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <!-- WinForms statt WPF: Ein Programm, das im Infobereich lebt, braucht
          kein XAML. Tray-Symbol, Kontextmenü und ein Dialog mit Reitern sind
          hier Standard und kommen ohne eigene Auszeichnungssprache aus. -->

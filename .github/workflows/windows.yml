@@ -17,9 +17,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # .NET 10 ist der aktuelle Langzeit-Stand (unterstützt bis November 2028).
+      # .NET 8 läuft im November 2026 aus, .NET 9 ist bereits ausgelaufen.
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "8.0.x"
+          dotnet-version: "10.0.x"
 
       # Der Kern ist plattformneutral und läuft überall; die Oberfläche
       # braucht Windows und wird deshalb hier gebaut.
