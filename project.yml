@@ -9,7 +9,7 @@ options:
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    MARKETING_VERSION: "1.6.1"
+    MARKETING_VERSION: "1.7.0"
     CURRENT_PROJECT_VERSION: "1"
     CODE_SIGN_STYLE: Automatic
     # Apple Development, ermittelt aus dem Signaturzertifikat:
@@ -22,6 +22,10 @@ targets:
     platform: macOS
     sources:
       - path: Sources
+      # Liegt im Bündel und wird beim Start herauskopiert — auf einem fremden
+      # Rechner gäbe es das Skript sonst gar nicht.
+      - path: Scripts/klick-bridge.sh
+        buildPhase: resources
     settings:
       base:
         PRODUCT_NAME: AGFEOPresenceBridge

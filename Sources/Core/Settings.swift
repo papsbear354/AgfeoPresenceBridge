@@ -161,9 +161,14 @@ enum ManualMode: String, Codable, CaseIterable, Sendable {
 
 /// Persistente Einstellungen (SPEC §10, Werte aus Nachtrag 01).
 struct Settings: Codable, Equatable, Sendable {
-    /// Öffentliche Bezeichner der Entra-App, keine Geheimnisse (Nachtrag 01 §1).
-    var tenantId: String = "0d35eefe-cb7b-4411-af1e-cab10f60e02f"
-    var clientId: String = "80f6f821-c617-4d54-8775-101394c0fbee"
+    /// Öffentliche Bezeichner der Entra-Anwendung, keine Geheimnisse.
+    ///
+    /// Bewusst leer: Mit fest eingebauten IDs würde sich eine weitergegebene
+    /// Kopie stillschweigend gegen einen fremden Tenant anzumelden versuchen
+    /// und mit einer schwer deutbaren Meldung scheitern. Die Einrichtung im
+    /// Konto-Tab führt durch das Anlegen.
+    var tenantId: String = ""
+    var clientId: String = ""
 
     var baseProfile: String = "Anwesend"
     var knownProfiles: [String] = ["Anwesend", "Meeting"]

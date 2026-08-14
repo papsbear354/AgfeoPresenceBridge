@@ -53,9 +53,30 @@ private struct Note: View {
 
 private struct AccountTab: View {
     @ObservedObject var model: AppModel
+    @State private var showSetup = false
+
+    private var isConfigured: Bool {
+        !model.settings.tenantId.isEmpty && !model.settings.clientId.isEmpty
+    }
 
     var body: some View {
         Form {
+            if !isConfigured {
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("Noch nicht eingerichtet", systemImage: "wand.and.stars")
+                            .font(.headline)
+                        Text("Die App braucht eine eigene Anwendungsregistrierung in "
+                             + "Microsoft Entra. Die Anleitung führt in fünf Schritten "
+                             + "hindurch.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Button("Einrichtung öffnen…") { showSetup = true }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+
             Section {
                 LabeledContent("Angemeldet als", value: model.accountDescription)
 
@@ -102,6 +123,7 @@ private struct AccountTab: View {
             Section {
                 TextField("Tenant-ID", text: $model.settings.tenantId)
                 TextField("Client-ID", text: $model.settings.clientId)
+                Button("Einrichtung anzeigen…") { showSetup = true }
             } header: {
                 Text("Entra-Anwendung")
             } footer: {
@@ -110,6 +132,7 @@ private struct AccountTab: View {
             }
         }
         .formStyle(.grouped)
+        .sheet(isPresented: $showSetup) { SetupGuideView() }
     }
 }
 

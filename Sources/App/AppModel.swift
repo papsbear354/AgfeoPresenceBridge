@@ -106,6 +106,7 @@ final class AppModel: ObservableObject {
         }
 
         lifecycle.install()
+        KlickScript.install()
         observeWake()
         reconcileLaunchAtLogin()
         withinWorkingHours = loaded.workingHours.contains(Date())
