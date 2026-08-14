@@ -20,6 +20,15 @@ xcodebuild -project AGFEOPresenceBridge.xcodeproj \
 
 Voraussetzungen: macOS 13+, Xcode 16+, keine externen Paketabhängigkeiten.
 
+## Ausliefern
+
+```bash
+Scripts/build-release.sh
+```
+
+Erzeugt ein DMG. Für die Weitergabe an fremde Rechner sind Signatur und
+Notarisierung nötig — siehe [docs/Auslieferung.md](docs/Auslieferung.md).
+
 ## Aufbau
 
 ```

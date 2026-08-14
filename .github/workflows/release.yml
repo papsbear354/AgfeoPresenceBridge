@@ -1,0 +1,70 @@
+name: Release
+
+# Ausgelöst durch einen Versions-Tag: git tag v1.7.0 && git push --tags
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: XcodeGen installieren
+        run: brew install xcodegen
+
+      - name: Version aus dem Tag ableiten
+        id: version
+        run: echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      # Ohne hinterlegtes Zertifikat entsteht ein unsigniertes Bündel. Das ist
+      # gewollt: Ein Fork ohne Zugänge soll bauen können, statt zu scheitern.
+      - name: Signaturzertifikat einspielen
+        if: env.CERTIFICATE != ''
+        env:
+          CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/build.keychain"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          echo "$CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" \
+            -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+      - name: Zugang für die Notarisierung hinterlegen
+        if: env.NOTARY_PASSWORD != ''
+        env:
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+        run: |
+          xcrun notarytool store-credentials release \
+            --apple-id "${{ secrets.NOTARY_APPLE_ID }}" \
+            --team-id "${{ secrets.NOTARY_TEAM_ID }}" \
+            --password "$NOTARY_PASSWORD"
+
+      - name: Bauen, signieren, notarisieren
+        env:
+          SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          NOTARY_PROFILE: ${{ secrets.NOTARY_PASSWORD != '' && 'release' || '' }}
+        run: Scripts/build-release.sh "${{ steps.version.outputs.value }}"
+
+      - name: Veröffentlichen
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/*.dmg
+          generate_release_notes: true
+          body: |
+            Menüleisten-App für macOS 13 oder neuer.
+
+            DMG öffnen, App nach „Programme“ ziehen, starten. Die Einrichtung
+            führt beim ersten Start durch die nötigen Schritte.

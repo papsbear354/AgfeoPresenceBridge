@@ -1,0 +1,26 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: XcodeGen installieren
+        run: brew install xcodegen
+
+      # Das Projekt liegt als project.yml im Repo, nicht als .xcodeproj.
+      - name: Projekt erzeugen
+        run: xcodegen generate
+
+      - name: Tests
+        run: |
+          set -o pipefail
+          xcodebuild -project AGFEOPresenceBridge.xcodeproj \
+            -scheme AGFEOPresenceBridge \
+            -configuration Debug test
