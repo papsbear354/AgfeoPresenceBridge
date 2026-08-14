@@ -1,0 +1,50 @@
+name: AGFEOPresenceBridge
+
+options:
+  bundleIdPrefix: de.baz
+  deploymentTarget:
+    macOS: "13.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+    # Apple Development, ermittelt aus dem Signaturzertifikat:
+    #   security find-certificate -c "Apple Development: …" -p | openssl x509 -noout -subject
+    DEVELOPMENT_TEAM: ZHH543APHL
+
+targets:
+  AGFEOPresenceBridge:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources
+    settings:
+      base:
+        PRODUCT_NAME: AGFEOPresenceBridge
+        PRODUCT_BUNDLE_IDENTIFIER: de.baz.agfeopresence
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Resources/Info.plist
+        # Bewusst nicht gesandboxt: die App muss das AGFEO-Dashboard finden,
+        # starten und ihm eine URL schicken. Im Sandbox ginge beides nicht.
+        ENABLE_APP_SANDBOX: NO
+        ENABLE_HARDENED_RUNTIME: YES
+        COMBINE_HIDPI_IMAGES: YES
+
+  AGFEOPresenceBridgeTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: AGFEOPresenceBridge
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: de.baz.agfeopresence.tests
+        GENERATE_INFOPLIST_FILE: YES
+        # Das Testbundle läuft nur auf dem Entwicklungsrechner. XCTest und
+        # Testing setzen macOS 14 voraus; die App selbst bleibt bei 13.
+        MACOSX_DEPLOYMENT_TARGET: "14.0"

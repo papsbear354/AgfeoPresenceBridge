@@ -1,0 +1,12 @@
+# Von XcodeGen aus project.yml erzeugt — die Projektdefinition liegt als Text
+# im Repo, die generierte Datei gehört nicht dazu.
+*.xcodeproj/
+
+# Build-Ausgaben
+build/
+DerivedData/
+
+.DS_Store
+
+# Lokale Werkzeugeinstellungen
+.claude/settings.local.json
