@@ -1,5 +1,9 @@
 import SwiftUI
 
+/// Sechs Tabs statt drei: Vorher lag alles, was kein Konto und kein Profil war,
+/// in einem einzigen „Verhalten“-Tab mit acht Abschnitten. Die Gliederung folgt
+/// jetzt der Frage, die man beim Öffnen im Kopf hat — nicht der Reihenfolge, in
+/// der die Funktionen entstanden sind.
 struct SettingsView: View {
     @ObservedObject var model: AppModel
 
@@ -8,13 +12,40 @@ struct SettingsView: View {
             AccountTab(model: model)
                 .tabItem { Label("Konto", systemImage: "person.crop.circle") }
             ProfilesTab(model: model)
-                .tabItem { Label("Rufprofile", systemImage: "phone") }
-            BehaviourTab(model: model)
-                .tabItem { Label("Verhalten", systemImage: "slider.horizontal.3") }
+                .tabItem { Label("Profile", systemImage: "phone") }
+            RulesTab(model: model)
+                .tabItem { Label("Regeln", systemImage: "list.bullet") }
+            PresenceTab(model: model)
+                .tabItem { Label("Anwesenheit", systemImage: "figure.walk") }
+            ControlsTab(model: model)
+                .tabItem { Label("Bedienung", systemImage: "hand.tap") }
+            TimingTab(model: model)
+                .tabItem { Label("Zeiten", systemImage: "timer") }
         }
-        // Höher als nötig wirkt luftig; zu niedrig versteckt ganze Abschnitte
-        // hinter einem Scrollbalken, den im Einstellungsfenster niemand sucht.
-        .frame(width: 560, height: 600)
+        .frame(width: 580, height: 560)
+    }
+}
+
+/// Kleinschrift unter einem Abschnitt.
+private struct Note: View {
+    let lines: [String]
+    var warning: String?
+
+    init(_ lines: String..., warning: String? = nil) {
+        self.lines = lines
+        self.warning = warning
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let warning {
+                Label(warning, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+            }
+            ForEach(lines, id: \.self) { Text($0) }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
     }
 }
 
@@ -25,15 +56,6 @@ private struct AccountTab: View {
 
     var body: some View {
         Form {
-            Section {
-                TextField("Tenant-ID", text: $model.settings.tenantId)
-                TextField("Client-ID", text: $model.settings.clientId)
-            } footer: {
-                Text("Beides sind öffentliche Bezeichner der Entra-Anwendung, keine Geheimnisse.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
             Section {
                 LabeledContent("Angemeldet als", value: model.accountDescription)
 
@@ -54,19 +76,44 @@ private struct AccountTab: View {
                         ProgressView().controlSize(.small)
                     }
                 }
+            } header: {
+                Text("Anmeldung")
             } footer: {
-                Text("Die App liest ausschließlich die eigene Teams-Präsenz. "
-                     + "Der Refresh Token liegt in der Keychain, das Zugriffstoken "
-                     + "nur im Arbeitsspeicher. Präsenzdaten verlassen den Rechner nicht.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Note("Die App liest ausschließlich die eigene Teams-Präsenz. Der "
+                     + "Refresh Token liegt in der Keychain, das Zugriffstoken nur im "
+                     + "Arbeitsspeicher. Präsenzdaten verlassen den Rechner nicht.")
+            }
+
+            Section {
+                Toggle("Gespräch am Telefon setzt den Teams-Status",
+                       isOn: $model.settings.setTeamsStatusOnCall)
+            } header: {
+                Text("Telefonanlage meldet an Teams")
+            } footer: {
+                Note("Während eines Gesprächs an der Anlage steht dein Teams-Status auf "
+                     + "„Beschäftigt“, damit dich niemand parallel dort anruft. Danach "
+                     + "wird er freigegeben — Teams bestimmt ihn dann wieder selbst.",
+                     "Setzt ein Klick-Konto im AGFEO Dashboard voraus, das auf "
+                     + "klick-bridge.sh zeigt. Der Status verfällt nach zwei Stunden von "
+                     + "selbst, falls die App vorher abstürzt.",
+                     warning: model.teamsStatusProblem)
+            }
+
+            Section {
+                TextField("Tenant-ID", text: $model.settings.tenantId)
+                TextField("Client-ID", text: $model.settings.clientId)
+            } header: {
+                Text("Entra-Anwendung")
+            } footer: {
+                Note("Beides sind öffentliche Bezeichner, keine Geheimnisse. Nach einer "
+                     + "Änderung ist eine neue Anmeldung nötig.")
             }
         }
         .formStyle(.grouped)
     }
 }
 
-// MARK: - Rufprofile
+// MARK: - Profile
 
 private struct ProfilesTab: View {
     @ObservedObject var model: AppModel
@@ -112,39 +159,9 @@ private struct ProfilesTab: View {
             } header: {
                 Text("Bekannte Profile")
             } footer: {
-                Text("Die Namen müssen exakt so geschrieben sein wie in der Anlage. "
-                     + "Das Dashboard meldet keine Fehler zurück — „Testen“ schaltet "
-                     + "sofort und zeigt damit Tippfehler jetzt statt beim ersten Anruf.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section {
-                ForEach($model.settings.rules) { $rule in
-                    RuleRow(rule: $rule, model: model)
-                }
-                .onMove { model.moveRules(from: $0, to: $1) }
-
-                Button("Regel hinzufügen") { model.addRule() }
-            } header: {
-                Text("Regeln — erste Übereinstimmung gewinnt")
-            } footer: {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("„Nicht am Platz“ wird lokal erkannt — über Bildschirmsperre, "
-                         + "fehlende Eingaben und den Ruhezustand, ohne Teams. Steht eine "
-                         + "Gesprächsregel darüber, gewinnt das Gespräch.")
-                    Text("`Busy` nicht als Regel verwenden: ein reiner Kalendertermin ohne "
-                         + "Gespräch liefert genau diesen Wert — ebenso ein von Hand "
-                         + "gesetztes „Beschäftigt“. Beides würde das Telefon umleiten, "
-                         + "obwohl niemand telefoniert.")
-                    Text("`InAMeeting` ist aus demselben Grund nicht vorbelegt: Teams setzt "
-                         + "das teils allein wegen eines Kalendereintrags.")
-                    Text("`Presenting` sollte aktiviert bleiben. Beim Bildschirmteilen "
-                         + "ersetzt dieser Wert `InACall` — ohne die Regel fiele das "
-                         + "Rufprofil mitten in der Präsentation zurück.")
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                Note("Die Namen müssen exakt so geschrieben sein wie in der Anlage. Das "
+                     + "Dashboard meldet keine Fehler zurück — „Testen“ schaltet sofort "
+                     + "und zeigt Tippfehler jetzt statt beim ersten Anruf.")
             }
         }
         .formStyle(.grouped)
@@ -153,6 +170,43 @@ private struct ProfilesTab: View {
     private func add() {
         model.addProfile(newProfile)
         newProfile = ""
+    }
+}
+
+// MARK: - Regeln
+
+private struct RulesTab: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        Form {
+            Section {
+                ForEach($model.settings.rules) { $rule in
+                    RuleRow(rule: $rule, model: model)
+                }
+                .onMove { model.moveRules(from: $0, to: $1) }
+
+                Button("Regel hinzufügen") { model.addRule() }
+            } header: {
+                Text("Erste Übereinstimmung gewinnt — Reihenfolge per Ziehen ändern")
+            } footer: {
+                Note("Trifft keine Regel zu, gilt das Grundprofil.",
+                     "„Nicht am Platz“ wird lokal erkannt, ohne Teams. Steht eine "
+                     + "Gesprächsregel darüber, gewinnt das Gespräch.")
+            }
+
+            Section("Fallstricke") {
+                Note("`Busy` eignet sich nicht als Auslöser: Ein reiner Kalendertermin "
+                     + "ohne Gespräch liefert genau diesen Wert, ebenso ein von Hand "
+                     + "gesetztes „Beschäftigt“. Beides würde umleiten, obwohl niemand "
+                     + "telefoniert.",
+                     "`InAMeeting` ist aus demselben Grund nicht vorbelegt.",
+                     "`Presenting` sollte aktiviert bleiben: Beim Bildschirmteilen "
+                     + "ersetzt dieser Wert `InACall` — ohne die Regel fiele das "
+                     + "Rufprofil mitten in der Präsentation zurück.")
+            }
+        }
+        .formStyle(.grouped)
     }
 }
 
@@ -200,6 +254,12 @@ private struct RuleRow: View {
         return options
     }
 
+    private var profileOptions: [String] {
+        model.settings.knownProfiles.contains(rule.profileName)
+            ? model.settings.knownProfiles
+            : model.settings.knownProfiles + [rule.profileName]
+    }
+
     /// Activities in exakter Schreibweise — darauf kommt es an. Der lokale
     /// Auslöser hat keinen Graph-Namen und steht deshalb im Klartext da.
     static func label(for trigger: RuleTrigger) -> String {
@@ -208,15 +268,9 @@ private struct RuleRow: View {
         case .awayFromDesk: return "Nicht am Platz (lokal)"
         }
     }
-
-    private var profileOptions: [String] {
-        model.settings.knownProfiles.contains(rule.profileName)
-            ? model.settings.knownProfiles
-            : model.settings.knownProfiles + [rule.profileName]
-    }
 }
 
-// MARK: - Verhalten
+// MARK: - Anwesenheit
 
 /// Wochentage als Reihe von Schaltern. `Calendar` zählt ab Sonntag; die
 /// Anzeige beginnt bei dem Tag, den das System als Wochenanfang führt.
@@ -247,7 +301,7 @@ private struct WeekdayPicker: View {
     }
 }
 
-private struct BehaviourTab: View {
+private struct PresenceTab: View {
     @ObservedObject var model: AppModel
 
     /// Übersetzt zwischen „Minuten seit Mitternacht“ und dem `Date`, das
@@ -269,8 +323,6 @@ private struct BehaviourTab: View {
 
     var body: some View {
         Form {
-            // Bewusst ganz oben: das ist der übergeordnete Schalter, alles
-            // Weitere gilt nur innerhalb dieses Fensters.
             Section {
                 Toggle("Nur während der Arbeitszeit", isOn: $model.settings.workingHours.enabled)
 
@@ -284,50 +336,12 @@ private struct BehaviourTab: View {
             } header: {
                 Text("Arbeitszeit")
             } footer: {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Außerhalb dieser Zeit wird nichts abgefragt, nichts erkannt und "
-                         + "nichts geschaltet. Beim Feierabend geht das Rufprofil einmal "
-                         + "auf das Grundprofil zurück, danach ist Ruhe.")
-                    Text("Manuelles Schalten aus dem Menü funktioniert weiterhin jederzeit.")
-                    if model.settings.workingHours.enabled {
-                        Text("Derzeit: \(model.withinWorkingHours ? "innerhalb" : "außerhalb") "
-                             + "der Arbeitszeit.")
-                    }
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-
-            Section {
-                Stepper(value: $model.settings.pollIntervalSeconds, in: 2...60) {
-                    Text("Abfrage-Intervall: \(model.settings.pollIntervalSeconds) s")
-                }
-                Stepper(value: $model.settings.pollIntervalInCallSeconds, in: 1...30) {
-                    Text("Während eines Gesprächs: \(model.settings.pollIntervalInCallSeconds) s")
-                }
-                Stepper(value: $model.settings.resetDelaySeconds, in: 0...60) {
-                    Text("Rückschalt-Verzögerung: \(model.settings.resetDelaySeconds) s")
-                }
-            } header: {
-                Text("Zeiten")
-            } footer: {
-                Text("Der begrenzende Faktor beim Zurückschalten ist das Abfrage-Intervall, "
-                     + "nicht Microsoft Graph. Wer schneller zurückschalten will, senkt das "
-                     + "Intervall während eines Gesprächs — nicht die Rückschalt-Verzögerung.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section {
-                Stepper(value: $model.settings.blindTimeoutSeconds, in: 60...3600, step: 60) {
-                    Text("Blind-Timeout: \(model.settings.blindTimeoutSeconds / 60) min")
-                }
-            } footer: {
-                Text("Ist der Teams-Status länger als diese Zeit unbekannt und ein "
-                     + "Regelprofil aktiv, fällt die App einmalig auf das Grundprofil "
-                     + "zurück. Sonst bliebe das Telefon umgeleitet, weil das WLAN weg war.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Note("Außerhalb dieser Zeit wird nichts abgefragt, nichts erkannt und "
+                     + "nichts geschaltet. Zum Feierabend geht das Rufprofil einmal auf "
+                     + "das Grundprofil zurück, danach ist Ruhe.",
+                     model.settings.workingHours.enabled
+                        ? "Derzeit: \(model.withinWorkingHours ? "innerhalb" : "außerhalb") der Arbeitszeit."
+                        : "Manuelles Schalten aus dem Menü funktioniert jederzeit.")
             }
 
             Section {
@@ -342,46 +356,49 @@ private struct BehaviourTab: View {
             } header: {
                 Text("Nicht am Platz")
             } footer: {
-                VStack(alignment: .leading, spacing: 4) {
-                    if model.settings.watchesDesk {
-                        Text("Derzeit erkannt: \(model.deskLine ?? "am Platz").")
-                    } else {
-                        Text("Wird erst wirksam, wenn im Tab „Rufprofile“ eine Regel den "
-                             + "Auslöser „Nicht am Platz“ benutzt.")
-                    }
-                    Text("Der Ruhezustand zählt immer als abwesend: Deckel zu heißt weg "
-                         + "vom Platz. Die Erkennung läuft rein lokal und braucht keine "
-                         + "Berechtigung.")
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                Note(model.settings.watchesDesk
+                        ? "Derzeit erkannt: \(model.deskLine ?? "am Platz")."
+                        : "Wird erst wirksam, wenn im Tab „Regeln“ eine Regel den Auslöser "
+                          + "„Nicht am Platz“ benutzt.",
+                     "Der Ruhezustand zählt immer als abwesend: Deckel zu heißt weg vom "
+                     + "Platz. Die Erkennung läuft lokal und braucht keine Berechtigung.")
             }
+        }
+        .formStyle(.grouped)
+    }
+}
 
+// MARK: - Bedienung
+
+private struct ControlsTab: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        Form {
             Section {
-                Toggle("Gespräch am Telefon setzt den Teams-Status",
-                       isOn: $model.settings.setTeamsStatusOnCall)
-            } header: {
-                Text("Telefonanlage")
+                Toggle("Automatik aktiv", isOn: $model.settings.automationEnabled)
+                Toggle("Beim Anmelden starten", isOn: $model.settings.launchAtLogin)
             } footer: {
-                VStack(alignment: .leading, spacing: 4) {
-                    if let problem = model.teamsStatusProblem {
-                        Label(problem, systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(.orange)
-                    }
-                    Text("Während eines Gesprächs an der Anlage steht dein Teams-Status "
-                         + "auf „Beschäftigt“, damit dich niemand parallel dort anruft. "
-                         + "Danach wird er freigegeben — Teams bestimmt ihn dann wieder "
-                         + "selbst, statt auf Grün festzustehen.")
-                    Text("Setzt voraus, dass im AGFEO Dashboard ein Klick-Konto auf "
-                         + "klick-bridge.sh zeigt. Der gesetzte Status verfällt nach zwei "
-                         + "Stunden von selbst, falls die App vorher abstürzt.")
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                Note("Ohne Automatik schaltet nichts von allein; das Menü funktioniert "
+                     + "weiter.",
+                     warning: model.launchAtLoginProblem.map { "Autostart nicht eingetragen: \($0)" })
             }
 
             Section {
-                Picker("Tastenkurzbefehl", selection: $model.settings.hotKeyChoice) {
+                Picker("Ein manuell gewähltes Profil", selection: $model.settings.manualMode) {
+                    ForEach(ManualMode.allCases, id: \.self) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+            } header: {
+                Text("Manuelles Schalten")
+            } footer: {
+                Note("Gilt für die Auswahl unter „Jetzt schalten auf“. Befristetes "
+                     + "Schalten hält das Profil unabhängig davon bis zum Ablauf.")
+            }
+
+            Section {
+                Picker("Kombination", selection: $model.settings.hotKeyChoice) {
                     ForEach(HotKeyChoice.all) { choice in
                         Text(choice.label).tag(choice.id)
                     }
@@ -397,37 +414,52 @@ private struct BehaviourTab: View {
             } header: {
                 Text("Tastenkurzbefehl")
             } footer: {
-                Text("Ein Druck schaltet auf das gewählte Profil und hält es — die "
+                Note("Ein Druck schaltet auf das gewählte Profil und hält es — die "
                      + "Automatik bleibt so lange außen vor. Ein zweiter Druck gibt sie "
-                     + "wieder frei. Funktioniert systemweit und ohne Freigabe unter "
+                     + "wieder frei. Wirkt systemweit, ohne Freigabe unter "
                      + "„Bedienungshilfen“.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
+        }
+        .formStyle(.grouped)
+    }
+}
 
-            Section("Manuelles Schalten") {
-                Picker("Ein manuell gewähltes Profil", selection: $model.settings.manualMode) {
-                    ForEach(ManualMode.allCases, id: \.self) { mode in
-                        Text(mode.label).tag(mode)
-                    }
+// MARK: - Zeiten
+
+private struct TimingTab: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        Form {
+            Section {
+                Stepper(value: $model.settings.pollIntervalSeconds, in: 2...60) {
+                    Text("Abfrage-Intervall: \(model.settings.pollIntervalSeconds) s")
                 }
+                Stepper(value: $model.settings.pollIntervalInCallSeconds, in: 1...30) {
+                    Text("Während eines Gesprächs: \(model.settings.pollIntervalInCallSeconds) s")
+                }
+                Stepper(value: $model.settings.resetDelaySeconds, in: 0...60) {
+                    Text("Rückschalt-Verzögerung: \(model.settings.resetDelaySeconds) s")
+                }
+            } header: {
+                Text("Abfrage und Rückschaltung")
+            } footer: {
+                Note("Der begrenzende Faktor beim Zurückschalten ist das Abfrage-"
+                     + "Intervall, nicht Microsoft Graph. Wer schneller zurückschalten "
+                     + "will, senkt das Intervall während eines Gesprächs — nicht die "
+                     + "Rückschalt-Verzögerung.")
             }
 
             Section {
-                Toggle("Automatik aktiv", isOn: $model.settings.automationEnabled)
-                Toggle("Beim Anmelden starten", isOn: $model.settings.launchAtLogin)
-            } footer: {
-                if let problem = model.launchAtLoginProblem {
-                    Label("Autostart nicht eingetragen: \(problem)",
-                          systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                } else {
-                    Text("Der Autostart lässt sich erst eintragen, wenn die App in "
-                         + "„/Programme“ liegt.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                Stepper(value: $model.settings.blindTimeoutSeconds, in: 60...3600, step: 60) {
+                    Text("Blind-Timeout: \(model.settings.blindTimeoutSeconds / 60) min")
                 }
+            } header: {
+                Text("Unbekannter Status")
+            } footer: {
+                Note("Ist der Teams-Status länger als diese Zeit unbekannt und ein "
+                     + "Regelprofil aktiv, fällt die App einmalig auf das Grundprofil "
+                     + "zurück. Sonst bliebe das Telefon umgeleitet, weil das WLAN weg war.")
             }
         }
         .formStyle(.grouped)
