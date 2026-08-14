@@ -1,0 +1,39 @@
+name: Windows
+
+on:
+  push:
+    branches: [main]
+    paths: ["windows/**", ".github/workflows/windows.yml"]
+  pull_request:
+    paths: ["windows/**"]
+
+jobs:
+  build:
+    runs-on: windows-2022
+    defaults:
+      run:
+        working-directory: windows
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      # Der Kern ist plattformneutral und läuft überall; die Oberfläche
+      # braucht Windows und wird deshalb hier gebaut.
+      - name: Tests
+        run: dotnet test tests/AgfeoPresenceBridge.Core.Tests --verbosity minimal
+
+      - name: Programm bauen
+        run: >
+          dotnet publish src/AgfeoPresenceBridge.Windows
+          -c Release -r win-x64 --self-contained false
+          -p:PublishSingleFile=true
+          -o publish
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AgfeoPresenceBridge-windows
+          path: windows/publish
