@@ -10,6 +10,15 @@ struct SystemTimeSource: TimeSource {
     func now() -> Date { Date() }
 }
 
+/// Ein Eintrag für den Verlauf im Menü.
+struct SwitchRecord: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let profile: String
+    let reason: String
+    let at: Date
+    let delivered: Bool
+}
+
 /// Ergebnis eines manuellen Schaltvorgangs.
 struct ManualSendOutcome: Equatable, Sendable {
     /// Konnte der Befehl abgesetzt werden? Eine Bestätigung, dass die Anlage
@@ -61,6 +70,16 @@ actor ProfileController {
     private var lastKnownActivity: String?
     /// Lokal erkannt, unabhängig von Teams.
     private(set) var awayFromDesk = false
+
+    /// Befristet gehaltenes Profil. Solange es steht, schaltet die Automatik
+    /// nicht dazwischen — sie beobachtet aber weiter, damit sie nach Ablauf
+    /// sofort den richtigen Stand kennt.
+    private(set) var heldProfile: String?
+
+    /// Die letzten Schaltvorgänge, neueste zuerst. Beantwortet die Frage
+    /// „warum steht da gerade dieses Profil?“ ohne Umweg über die Logdatei.
+    private(set) var history: [SwitchRecord] = []
+    private let historyLimit = 5
 
     init(
         bridge: any ProfileActivating,
@@ -152,6 +171,9 @@ actor ProfileController {
     }
 
     private func aim(at target: String, reason: String) async {
+        // Ein befristet gehaltenes Profil hat Vorrang vor allem Automatischen.
+        guard heldProfile == nil else { return }
+
         guard target == baseProfile else {
             // Ein Regelprofil greift: sofort schalten, ohne Verzögerung.
             resetPendingSince = nil
@@ -224,14 +246,18 @@ actor ProfileController {
 
     // MARK: Manuelles Schalten
 
+    /// - Parameter holdsAutomation: Bei `true` bleibt das Profil stehen, bis
+    ///   `releaseHold()` es wieder freigibt — für „für 30 Minuten“ aus dem Menü.
     @discardableResult
-    func sendManual(profile: String) async -> ManualSendOutcome {
-        let delivered = await send(profile, reason: "manuell, Modus \(manualMode.rawValue)")
+    func sendManual(profile: String, holdsAutomation: Bool = false) async -> ManualSendOutcome {
+        let note = holdsAutomation ? "manuell, befristet" : "manuell, Modus \(manualMode.rawValue)"
+        let delivered = await send(profile, reason: note)
         var outcome = ManualSendOutcome(delivered: delivered, newBaseProfile: nil)
 
         // Nach einer manuellen Auswahl darf kein alter Rückschalt-Zeitraum
         // nachwirken.
         resetPendingSince = nil
+        heldProfile = (delivered && holdsAutomation) ? profile : nil
 
         guard delivered, manualMode == .sticky, profile != baseProfile else { return outcome }
         safety.setBaseProfile(profile)
@@ -247,6 +273,24 @@ actor ProfileController {
         await send(profile, reason: "Testen-Knopf")
     }
 
+    /// Ende der Befristung: die Automatik übernimmt wieder.
+    func releaseHold() async {
+        guard heldProfile != nil else { return }
+        heldProfile = nil
+        Log.info(.controller, "Befristung abgelaufen, Automatik übernimmt wieder")
+        await evaluate(reason: "Befristung abgelaufen")
+    }
+
+    /// Das Dashboard wurde neu gestartet und kennt unseren Stand nicht mehr.
+    ///
+    /// Weil es keinen Rückkanal gibt, ist erneutes Senden die einzige
+    /// Möglichkeit, wieder sicher zu sein — hier ausnahmsweise auch bei
+    /// unverändertem Zustand.
+    func resendLastProfile() async {
+        guard let profile = lastSentProfile else { return }
+        await send(profile, reason: "Dashboard neu gestartet")
+    }
+
     // MARK: Intern
 
     @discardableResult
@@ -254,6 +298,14 @@ actor ProfileController {
         Log.info(.controller, "Sende \"\(profile)\" (\(reason))")
         let delivered = await bridge.activate(profile: profile)
         lastSendFailed = !delivered
+
+        history.insert(
+            SwitchRecord(
+                id: UUID(), profile: profile, reason: reason,
+                at: time.now(), delivered: delivered),
+            at: 0)
+        if history.count > historyLimit { history.removeLast(history.count - historyLimit) }
+
         guard delivered else { return false }
         safety.recordSent(profile)
         lastSentAt = time.now()

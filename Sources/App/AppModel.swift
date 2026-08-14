@@ -54,6 +54,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var deskPresence: DeskPresence = .atDesk
     /// Außerhalb der Arbeitszeit ruht die Automatik vollständig.
     @Published private(set) var withinWorkingHours = true
+    /// Läuft eine Befristung, steht hier ihr Ende.
+    @Published private(set) var holdUntil: Date?
+    /// Die letzten Schaltvorgänge für das Menü.
+    @Published private(set) var history: [SwitchRecord] = []
 
     /// Meldung, wenn sich der Autostart nicht eintragen ließ.
     @Published private(set) var launchAtLoginProblem: String?
@@ -68,6 +72,8 @@ final class AppModel: ObservableObject {
     private var poller: PresencePoller?
     private var persistTask: Task<Void, Never>?
     private var scheduleTimer: Timer?
+    private var holdTimer: Timer?
+    private let notifier = Notifier()
 
     init() {
         let loaded = SettingsStore.load()
@@ -101,16 +107,43 @@ final class AppModel: ObservableObject {
     /// (SPEC §6). `@Sendable` verhindert, dass der Closure die Isolation dieser
     /// Methode erbt und beim Aufruf geprüft wird.
     private func observeWake() {
-        NSWorkspace.shared.notificationCenter.addObserver(
+        let center = NSWorkspace.shared.notificationCenter
+
+        center.addObserver(
             forName: NSWorkspace.didWakeNotification,
             object: nil,
             queue: .main
         ) { @Sendable [weak self] _ in
             Task { @MainActor in
                 Log.info(.app, "Aufgewacht, Abfrage wird sofort wiederholt")
+                self?.checkSchedule()
                 await self?.poller?.pokeNow()
             }
         }
+
+        // Startet das Dashboard neu, kennt es unseren Stand nicht mehr. Weil es
+        // keinen Rückkanal gibt, hilft nur erneutes Senden.
+        center.addObserver(
+            forName: NSWorkspace.didLaunchApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { @Sendable [weak self] notification in
+            let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
+                as? NSRunningApplication
+            guard app?.bundleIdentifier == AgfeoBridge.dashboardBundleID else { return }
+            Task { @MainActor in await self?.dashboardDidStart() }
+        }
+    }
+
+    private func dashboardDidStart() async {
+        // Kurz warten: das Dashboard synchronisiert sich erst mit der Anlage,
+        // und ein eigener Schaltvorgang, der den Start ausgelöst hat, soll
+        // zuerst fertig werden.
+        try? await Task.sleep(nanoseconds: 3_000_000_000)
+        guard withinWorkingHours, settings.automationEnabled else { return }
+        Log.info(.app, "Dashboard neu gestartet, letzter Stand wird erneut gesendet")
+        await controller.resendLastProfile()
+        await refreshFromController()
     }
 
     // MARK: Anmeldung
@@ -290,14 +323,49 @@ final class AppModel: ObservableObject {
     // MARK: Schalten
 
     /// Manuelles Schalten aus dem Menü.
-    func send(profile: String) async {
+    ///
+    /// - Parameter duration: Mit Angabe bleibt das Profil so lange stehen und
+    ///   die Automatik hält sich zurück; danach übernimmt sie wieder.
+    func send(profile: String, for duration: TimeInterval? = nil) async {
         isSending = true
         defer { isSending = false }
-        let outcome = await controller.sendManual(profile: profile)
+
+        let outcome = await controller.sendManual(
+            profile: profile, holdsAutomation: duration != nil)
         if let newBase = outcome.newBaseProfile {
             settings.baseProfile = newBase
         }
+        if outcome.delivered, let duration {
+            startHold(for: duration)
+        } else {
+            clearHold()
+        }
         await refreshFromController()
+    }
+
+    /// Befristung vorzeitig beenden.
+    func endHold() async {
+        clearHold()
+        await controller.releaseHold()
+        await refreshFromController()
+    }
+
+    private func startHold(for duration: TimeInterval) {
+        holdTimer?.invalidate()
+        holdUntil = Date().addingTimeInterval(duration)
+        let timer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) {
+            @Sendable [weak self] _ in
+            Task { @MainActor in await self?.endHold() }
+        }
+        timer.tolerance = 5
+        holdTimer = timer
+        Log.info(.app, "Befristung läuft \(Int(duration / 60)) Minuten")
+    }
+
+    private func clearHold() {
+        holdTimer?.invalidate()
+        holdTimer = nil
+        holdUntil = nil
     }
 
     /// Testen-Knopf neben einem Profilnamen in den Einstellungen.
@@ -311,7 +379,19 @@ final class AppModel: ObservableObject {
     private func refreshFromController() async {
         lastSentProfile = await controller.lastSentProfile
         lastSentAt = await controller.lastSentAt
-        sendFailed = await controller.lastSendFailed
+        history = await controller.history
+
+        let failed = await controller.lastSendFailed
+        // Nur beim Übergang melden, nicht bei jedem Poll erneut.
+        if failed, !sendFailed {
+            let profile = history.first?.profile ?? "Rufprofil"
+            Task {
+                await notifier.warn(
+                    title: "Rufprofil nicht geschaltet",
+                    body: "„\(profile)“ ließ sich nicht setzen. Läuft das AGFEO-Dashboard?")
+            }
+        }
+        sendFailed = failed
     }
 
     // MARK: Anzeige

@@ -330,6 +330,124 @@ struct ProfileControllerDeskTests {
     }
 }
 
+@Suite("ProfileController — Befristung, Verlauf, Dashboard-Neustart")
+struct ProfileControllerHoldTests {
+    @Test("Ein befristetes Profil überlebt die Automatik")
+    func heldProfileSurvivesAutomation() async {
+        let bridge = MockBridge()
+        let clock = TestClock()
+        let controller = ProfileController(bridge: bridge, time: clock, settings: makeSettings())
+
+        await controller.sendManual(profile: "Abwesend", holdsAutomation: true)
+        #expect(bridge.sent == ["Abwesend"])
+
+        // Weder ein Anruf noch die Rückkehr zum Grundprofil kommen dagegen an.
+        await controller.handle(inACall)
+        clock.advance(10)
+        await controller.handle(available)
+        clock.advance(10)
+        await controller.handle(available)
+
+        #expect(bridge.sent == ["Abwesend"])
+        #expect(await controller.heldProfile == "Abwesend")
+    }
+
+    @Test("Nach dem Ende der Befristung übernimmt die Automatik sofort")
+    func releaseHandsBackToAutomation() async {
+        let bridge = MockBridge()
+        let clock = TestClock()
+        let controller = ProfileController(bridge: bridge, time: clock, settings: makeSettings())
+
+        await controller.sendManual(profile: "Abwesend", holdsAutomation: true)
+        await controller.handle(inACall)
+        #expect(bridge.sent == ["Abwesend"])
+
+        await controller.releaseHold()
+
+        // Der Controller hat währenddessen mitgezählt und kennt den Stand.
+        #expect(bridge.sent == ["Abwesend", "Meeting"])
+        #expect(await controller.heldProfile == nil)
+    }
+
+    @Test("Ohne Befristung bleibt es beim bisherigen Verhalten")
+    func plainManualDoesNotHold() async {
+        let bridge = MockBridge()
+        let clock = TestClock()
+        let controller = ProfileController(bridge: bridge, time: clock, settings: makeSettings())
+
+        await controller.sendManual(profile: "Abwesend")
+        #expect(await controller.heldProfile == nil)
+
+        await controller.handle(inACall)
+        #expect(bridge.sent == ["Abwesend", "Meeting"])
+    }
+
+    @Test("Ein fehlgeschlagener Befehl hält nichts")
+    func failedSendDoesNotHold() async {
+        let bridge = MockBridge(succeeds: false)
+        let controller = ProfileController(
+            bridge: bridge, time: TestClock(), settings: makeSettings())
+
+        await controller.sendManual(profile: "Abwesend", holdsAutomation: true)
+        #expect(await controller.heldProfile == nil)
+    }
+
+    /// Ohne Rückkanal ist erneutes Senden die einzige Möglichkeit, nach einem
+    /// Neustart des Dashboards wieder sicher zu sein.
+    @Test("Nach einem Dashboard-Neustart wird derselbe Stand erneut gesendet")
+    func resendsAfterDashboardRestart() async {
+        let bridge = MockBridge()
+        let clock = TestClock()
+        let controller = ProfileController(bridge: bridge, time: clock, settings: makeSettings())
+
+        await controller.handle(inACall)
+        await controller.resendLastProfile()
+
+        #expect(bridge.sent == ["Meeting", "Meeting"])
+    }
+
+    @Test("Ohne je gesendetes Profil gibt es nichts zu wiederholen")
+    func resendNeedsAPreviousSend() async {
+        let bridge = MockBridge()
+        let controller = ProfileController(
+            bridge: bridge, time: TestClock(), settings: makeSettings())
+
+        await controller.resendLastProfile()
+        #expect(bridge.sent.isEmpty)
+    }
+
+    @Test("Der Verlauf führt die letzten fünf Vorgänge, neueste zuerst")
+    func historyKeepsLastFive() async {
+        let bridge = MockBridge()
+        let clock = TestClock()
+        let controller = ProfileController(bridge: bridge, time: clock, settings: makeSettings())
+
+        for index in 0..<7 {
+            await controller.sendTest(profile: "Profil \(index)")
+            clock.advance(60)
+        }
+
+        let history = await controller.history
+        #expect(history.count == 5)
+        #expect(history.first?.profile == "Profil 6")
+        #expect(history.last?.profile == "Profil 2")
+        #expect(history.allSatisfy { $0.delivered })
+    }
+
+    @Test("Auch fehlgeschlagene Vorgänge stehen im Verlauf")
+    func historyRecordsFailures() async {
+        let bridge = MockBridge(succeeds: false)
+        let controller = ProfileController(
+            bridge: bridge, time: TestClock(), settings: makeSettings())
+
+        await controller.sendManual(profile: "Meeting")
+
+        let history = await controller.history
+        #expect(history.count == 1)
+        #expect(history.first?.delivered == false)
+    }
+}
+
 @Suite("ProfileController — unbekannter Status")
 struct ProfileControllerBlindTests {
     /// Abnahmekriterium 4: Zehn Sekunden ohne bekannten Status ändern nichts.

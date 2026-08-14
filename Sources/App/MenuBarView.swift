@@ -3,6 +3,19 @@ import SwiftUI
 struct MenuBarView: View {
     @ObservedObject var model: AppModel
 
+    static let durations: [(minutes: Int, label: String)] = [
+        (15, "15 Minuten"),
+        (30, "30 Minuten"),
+        (60, "1 Stunde"),
+        (120, "2 Stunden"),
+    ]
+
+    static let time: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
+
     var body: some View {
         Text(model.statusLine)
         if let availability = model.availabilityLine {
@@ -38,6 +51,39 @@ struct MenuBarView: View {
             }
         }
         .disabled(model.isSending)
+
+        Menu("Befristet schalten") {
+            ForEach(Self.durations, id: \.minutes) { duration in
+                Menu(duration.label) {
+                    ForEach(model.settings.knownProfiles, id: \.self) { profile in
+                        Button(profile) {
+                            Task {
+                                await model.send(
+                                    profile: profile,
+                                    for: TimeInterval(duration.minutes * 60))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .disabled(model.isSending)
+
+        if let until = model.holdUntil {
+            Button("Befristung beenden (bis \(Self.time.string(from: until)))") {
+                Task { await model.endHold() }
+            }
+        }
+
+        if !model.history.isEmpty {
+            Menu("Verlauf") {
+                ForEach(model.history) { record in
+                    Text("\(Self.time.string(from: record.at))  \(record.profile)"
+                         + "\(record.delivered ? "" : " (fehlgeschlagen)")"
+                         + " — \(record.reason)")
+                }
+            }
+        }
 
         Divider()
 
