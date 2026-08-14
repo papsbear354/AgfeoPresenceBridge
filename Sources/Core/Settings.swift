@@ -210,6 +210,11 @@ struct Settings: Codable, Equatable, Sendable {
     // gedrückt wird. Gedacht für „ich bin gleich zurück“, ohne die Menüleiste
     // anzusteuern.
 
+    /// Setzt ein Gespräch an der Telefonanlage den Teams-Status auf
+    /// „Beschäftigt“? Voreingestellt aus — der Status ist für alle Kollegen
+    /// sichtbar, das schaltet man bewusst ein.
+    var setTeamsStatusOnCall: Bool = false
+
     /// Nummer aus `HotKeyChoice`; 0 heißt: kein Kurzbefehl.
     var hotKeyChoice: Int = 0
     /// Profil, auf das der Kurzbefehl schaltet. Leer heißt: aus.
@@ -264,6 +269,7 @@ struct Settings: Codable, Equatable, Sendable {
         awayOnIdle = try c.decodeIfPresent(Bool.self, forKey: .awayOnIdle) ?? d.awayOnIdle
         idleThresholdSeconds = try c.decodeIfPresent(Int.self, forKey: .idleThresholdSeconds) ?? d.idleThresholdSeconds
         workingHours = try c.decodeIfPresent(WorkingHours.self, forKey: .workingHours) ?? d.workingHours
+        setTeamsStatusOnCall = try c.decodeIfPresent(Bool.self, forKey: .setTeamsStatusOnCall) ?? d.setTeamsStatusOnCall
         hotKeyChoice = try c.decodeIfPresent(Int.self, forKey: .hotKeyChoice) ?? d.hotKeyChoice
         hotKeyProfile = try c.decodeIfPresent(String.self, forKey: .hotKeyProfile) ?? d.hotKeyProfile
     }

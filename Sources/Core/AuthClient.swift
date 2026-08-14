@@ -69,7 +69,10 @@ actor AuthClient {
     /// delegiert und per Administratorzustimmung erteilt (Nachtrag 01 §1), es
     /// erscheint also kein zusätzlicher Zustimmungsdialog. Wird der Name nicht
     /// gebraucht, genügt hier `Presence.Read offline_access`.
-    static let scope = "Presence.Read User.Read offline_access"
+    /// `Presence.ReadWrite` kommt hinzu, damit ein Gespräch an der
+    /// Telefonanlage den Teams-Status setzen kann. Wer die Funktion nicht
+    /// nutzt, ändert dadurch nichts — geschrieben wird nur auf Anforderung.
+    static let scope = "Presence.Read Presence.ReadWrite User.Read offline_access"
     static let redirectURI = "de.baz.agfeopresence://auth"
     static let callbackScheme = "de.baz.agfeopresence"
 

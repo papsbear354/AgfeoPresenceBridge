@@ -69,6 +69,8 @@ final class AppModel: ObservableObject {
 
     /// Meldung, wenn sich der Autostart nicht eintragen ließ.
     @Published private(set) var launchAtLoginProblem: String?
+    /// Meldung, wenn der Teams-Status nicht gesetzt werden konnte.
+    @Published private(set) var teamsStatusProblem: String?
 
     private let bridge = AgfeoBridge()
     private let deskSource = SystemDeskPresence()
@@ -76,6 +78,7 @@ final class AppModel: ObservableObject {
     private let lifecycle: LifecycleGuard
     private let controller: ProfileController
     private let accountClient = AccountClient()
+    private let presenceWriter = PresenceWriter()
     private var auth: AuthClient
     private var poller: PresencePoller?
     private var persistTask: Task<Void, Never>?
@@ -190,6 +193,13 @@ final class AppModel: ObservableObject {
     }
 
     func signOut() async {
+        // Einen gesetzten Teams-Status nicht zurücklassen — nach dem Abmelden
+        // käme die App nicht mehr an ihn heran.
+        if activeCall != nil, settings.setTeamsStatusOnCall,
+           let token = try? await auth.validAccessToken() {
+            _ = await presenceWriter.clear(accessToken: token)
+        }
+        activeCall = nil
         await stopPolling()
         await auth.signOut()
         authState = .signedOut
@@ -226,13 +236,44 @@ final class AppModel: ObservableObject {
         Log.info(.app, "Anlage meldet: \(event.state.rawValue)"
                  + (event.number.isEmpty ? "" : " (\(event.number))"))
 
+        let wasTalking = activeCall != nil
+
         if event.state.endsCall {
             // Nur das Gespräch beenden, um das es auch geht: ein verspätetes
             // Ende darf einen längst neuen Anruf nicht abräumen.
             if activeCall?.connectionUID == event.connectionUID { activeCall = nil }
-            return
+        } else {
+            activeCall = event.state.isTalking ? event : nil
         }
-        activeCall = event.state.isTalking ? event : nil
+
+        guard wasTalking != (activeCall != nil) else { return }
+        Task { await applyTeamsStatus(busy: activeCall != nil) }
+    }
+
+    /// Spiegelt ein Gespräch an der Telefonanlage in den Teams-Status.
+    ///
+    /// Beim Ende wird der Status nicht auf „Verfügbar“ gesetzt, sondern
+    /// freigegeben — sonst stünde er auf Grün fest, während in Teams
+    /// womöglich längst eine Besprechung läuft.
+    private func applyTeamsStatus(busy: Bool) async {
+        guard settings.setTeamsStatusOnCall, isSignedIn else { return }
+        guard let token = try? await auth.validAccessToken() else { return }
+
+        let result = busy
+            ? await presenceWriter.setBusy(accessToken: token)
+            : await presenceWriter.clear(accessToken: token)
+
+        switch result {
+        case .ok:
+            Log.info(.presence, busy
+                     ? "Teams-Status auf Beschäftigt gesetzt (Gespräch an der Anlage)"
+                     : "Teams-Status wieder freigegeben")
+            teamsStatusProblem = nil
+        case .forbidden:
+            teamsStatusProblem = "Berechtigung fehlt — bitte einmal ab- und wieder anmelden."
+        case .failed(let message):
+            teamsStatusProblem = message
+        }
     }
 
     /// Zeile im Menü, solange an der Anlage telefoniert wird.

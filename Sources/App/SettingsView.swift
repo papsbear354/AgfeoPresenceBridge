@@ -358,6 +358,29 @@ private struct BehaviourTab: View {
             }
 
             Section {
+                Toggle("Gespräch am Telefon setzt den Teams-Status",
+                       isOn: $model.settings.setTeamsStatusOnCall)
+            } header: {
+                Text("Telefonanlage")
+            } footer: {
+                VStack(alignment: .leading, spacing: 4) {
+                    if let problem = model.teamsStatusProblem {
+                        Label(problem, systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                    }
+                    Text("Während eines Gesprächs an der Anlage steht dein Teams-Status "
+                         + "auf „Beschäftigt“, damit dich niemand parallel dort anruft. "
+                         + "Danach wird er freigegeben — Teams bestimmt ihn dann wieder "
+                         + "selbst, statt auf Grün festzustehen.")
+                    Text("Setzt voraus, dass im AGFEO Dashboard ein Klick-Konto auf "
+                         + "klick-bridge.sh zeigt. Der gesetzte Status verfällt nach zwei "
+                         + "Stunden von selbst, falls die App vorher abstürzt.")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            Section {
                 Picker("Tastenkurzbefehl", selection: $model.settings.hotKeyChoice) {
                     ForEach(HotKeyChoice.all) { choice in
                         Text(choice.label).tag(choice.id)

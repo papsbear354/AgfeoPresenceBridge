@@ -3,76 +3,12 @@ import Testing
 
 @testable import AGFEOPresenceBridge
 
-/// Antwortet anstelle von Graph. Der Vorrat wird vor jedem Test gesetzt,
-/// deshalb läuft die Suite seriell.
-final class URLProtocolStub: URLProtocol {
-    struct Stub {
-        var status = 200
-        var body = Data()
-        var headers: [String: String] = [:]
-        var error: (any Error)?
-    }
-
-    final class Box: @unchecked Sendable {
-        private let lock = NSLock()
-        private var stub = Stub()
-        private var lastRequest: URLRequest?
-
-        func set(_ stub: Stub) {
-            lock.withLock { self.stub = stub }
-        }
-
-        func current() -> Stub {
-            lock.withLock { stub }
-        }
-
-        func record(_ request: URLRequest) {
-            lock.withLock { lastRequest = request }
-        }
-
-        func request() -> URLRequest? {
-            lock.withLock { lastRequest }
-        }
-    }
-
-    static let box = Box()
-
-    static func makeSession() -> URLSession {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [URLProtocolStub.self]
-        return URLSession(configuration: configuration)
-    }
-
-    override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-
-    override func startLoading() {
-        Self.box.record(request)
-        let stub = Self.box.current()
-
-        if let error = stub.error {
-            client?.urlProtocol(self, didFailWithError: error)
-            return
-        }
-
-        let response = HTTPURLResponse(
-            url: request.url!,
-            statusCode: stub.status,
-            httpVersion: "HTTP/1.1",
-            headerFields: stub.headers)!
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: stub.body)
-        client?.urlProtocolDidFinishLoading(self)
-    }
-
-    override func stopLoading() {}
-}
-
-@Suite("PresenceClient — Antworten und Fehlerfälle", .serialized)
+@Suite("PresenceClient — Antworten und Fehlerfälle")
 struct PresenceClientTests {
+    private let network = StubbedNetwork()
+
     private func client(_ stub: URLProtocolStub.Stub) -> PresenceClient {
-        URLProtocolStub.box.set(stub)
-        return PresenceClient(session: URLProtocolStub.makeSession())
+        PresenceClient(session: network.session(stub))
     }
 
     private func json(_ text: String) -> URLProtocolStub.Stub {
@@ -91,7 +27,7 @@ struct PresenceClientTests {
         let client = client(json(#"{"availability":"Available","activity":"Available"}"#))
         _ = await client.fetch(accessToken: "GEHEIM")
 
-        let request = URLProtocolStub.box.request()
+        let request = network.request
         #expect(request?.value(forHTTPHeaderField: "Authorization") == "Bearer GEHEIM")
         #expect(request?.url?.path == "/v1.0/me/presence")
         // Kein $select: der Endpunkt weist das mit HTTP 400 zurück.
