@@ -1,0 +1,36 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{3FF196ED-33B5-4C98-9E67-0EF2942B3E2C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AgfeoPresenceBridge.Core", "src\AgfeoPresenceBridge.Core\AgfeoPresenceBridge.Core.csproj", "{51D51C4C-5BE8-4763-BEA8-7E77AE65E696}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{F0A13130-8E07-4C24-AC11-F32873D19110}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AgfeoPresenceBridge.Core.Tests", "tests\AgfeoPresenceBridge.Core.Tests\AgfeoPresenceBridge.Core.Tests.csproj", "{79E34E39-3D48-407A-A606-AA98C58E5707}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{51D51C4C-5BE8-4763-BEA8-7E77AE65E696}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{51D51C4C-5BE8-4763-BEA8-7E77AE65E696}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{51D51C4C-5BE8-4763-BEA8-7E77AE65E696}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{51D51C4C-5BE8-4763-BEA8-7E77AE65E696}.Release|Any CPU.Build.0 = Release|Any CPU
+		{79E34E39-3D48-407A-A606-AA98C58E5707}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{79E34E39-3D48-407A-A606-AA98C58E5707}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{79E34E39-3D48-407A-A606-AA98C58E5707}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{79E34E39-3D48-407A-A606-AA98C58E5707}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{51D51C4C-5BE8-4763-BEA8-7E77AE65E696} = {3FF196ED-33B5-4C98-9E67-0EF2942B3E2C}
+		{79E34E39-3D48-407A-A606-AA98C58E5707} = {F0A13130-8E07-4C24-AC11-F32873D19110}
+	EndGlobalSection
+EndGlobal
