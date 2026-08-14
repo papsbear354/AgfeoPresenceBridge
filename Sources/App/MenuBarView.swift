@@ -24,6 +24,9 @@ struct MenuBarView: View {
         if let desk = model.deskLine {
             Text(desk)
         }
+        if let call = model.callLine {
+            Text(call)
+        }
         Text("Zuletzt gesendet: \(model.lastSentDescription)")
 
         if !model.isSignedIn {

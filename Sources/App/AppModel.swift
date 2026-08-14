@@ -56,6 +56,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var presence: PresenceResult?
     /// Lokal erkannt, unabhängig von Teams.
     @Published private(set) var deskPresence: DeskPresence = .atDesk
+    /// Laufendes Gespräch an der Telefonanlage, gemeldet über den AGFEO Klick.
+    @Published private(set) var activeCall: CallEvent?
     /// Außerhalb der Arbeitszeit ruht die Automatik vollständig.
     @Published private(set) var withinWorkingHours = true
     /// Läuft eine Befristung, steht hier ihr Ende. Ohne Ende bedeutet ein
@@ -214,6 +216,31 @@ final class AppModel: ObservableObject {
         await poller.stop()
         self.poller = nil
         presence = nil
+    }
+
+    // MARK: Telefonanlage
+
+    /// Ereignis vom AGFEO Klick — der Rückkanal, den der Protocol Handler
+    /// nicht hat.
+    func handleCallEvent(_ event: CallEvent) {
+        Log.info(.app, "Anlage meldet: \(event.state.rawValue)"
+                 + (event.number.isEmpty ? "" : " (\(event.number))"))
+
+        if event.state.endsCall {
+            // Nur das Gespräch beenden, um das es auch geht: ein verspätetes
+            // Ende darf einen längst neuen Anruf nicht abräumen.
+            if activeCall?.connectionUID == event.connectionUID { activeCall = nil }
+            return
+        }
+        activeCall = event.state.isTalking ? event : nil
+    }
+
+    /// Zeile im Menü, solange an der Anlage telefoniert wird.
+    var callLine: String? {
+        guard let call = activeCall else { return nil }
+        let direction = call.isOutbound ? "abgehend" : "ankommend"
+        let number = call.number.isEmpty ? "unbekannt" : call.number
+        return "Telefon: \(call.state.text), \(direction) \(number)"
     }
 
     // MARK: Arbeitszeit
