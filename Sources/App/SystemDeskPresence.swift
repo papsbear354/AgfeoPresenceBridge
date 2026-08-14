@@ -27,10 +27,15 @@ final class SystemDeskPresence: DeskPresenceSource, @unchecked Sendable {
     private var asleep = false
     private var current: DeskPresence = .atDesk
 
-    /// So oft wird die Leerlaufzeit nachgesehen. Der Aufruf ist billig; das
-    /// Intervall bestimmt, wie schnell die Rückkehr an den Platz auffällt,
-    /// wenn dabei nicht entsperrt wird.
-    private let checkInterval: TimeInterval = 10
+    /// So oft wird die Leerlaufzeit nachgesehen.
+    ///
+    /// Am Platz genügt ein gemächlicher Takt — bis die Schwelle überhaupt
+    /// erreicht ist, vergehen Minuten. Während der Abwesenheit wird häufiger
+    /// nachgesehen, weil dann die Rückkehr schnell auffallen soll: wer nur die
+    /// Maus bewegt, ohne zu entsperren, wartet sonst unnötig auf sein Profil.
+    /// Die Abfrage selbst kostet praktisch nichts.
+    private let atDeskInterval: TimeInterval = 10
+    private let awayInterval: TimeInterval = 2
 
     // MARK: DeskPresenceSource
 
@@ -81,14 +86,29 @@ final class SystemDeskPresence: DeskPresenceSource, @unchecked Sendable {
 
         lock.withLock { observers = tokens }
 
-        let timer = Timer.scheduledTimer(withTimeInterval: checkInterval, repeats: true) {
-            @Sendable [self] _ in evaluate()
-        }
-        timer.tolerance = checkInterval / 4
-        self.timer = timer
-
+        startTimer(interval: atDeskInterval)
         Log.info(.app, "Anwesenheit am Platz wird überwacht")
         evaluate()
+    }
+
+    @MainActor
+    private func startTimer(interval: TimeInterval) {
+        timer?.invalidate()
+        let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) {
+            @Sendable [self] _ in evaluate()
+        }
+        timer.tolerance = interval / 4
+        self.timer = timer
+    }
+
+    /// Nach einem Zustandswechsel den Takt anpassen.
+    @MainActor
+    private func adjustTimer(away: Bool) {
+        // Läuft keine Überwachung, gibt es auch nichts umzustellen.
+        guard let timer else { return }
+        let wanted = away ? awayInterval : atDeskInterval
+        guard timer.timeInterval != wanted else { return }
+        startTimer(interval: wanted)
     }
 
     @MainActor
@@ -138,6 +158,7 @@ final class SystemDeskPresence: DeskPresenceSource, @unchecked Sendable {
             return (presence, self.sink)
         }
         guard let sink else { return }
+        Task { @MainActor in adjustTimer(away: next.isAway) }
         Task { await sink(next) }
     }
 }
