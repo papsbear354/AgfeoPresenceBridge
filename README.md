@@ -34,6 +34,25 @@ testbar. `ProfileController` und `RuleEngine` sind das Herzstück; dort liegen
 die Fehler, die im Betrieb wehtun, deshalb hängen die Unit-Tests vor allem
 daran.
 
+## Auslöser
+
+Das Regelwerk ist eine geordnete Liste, erste Übereinstimmung gewinnt. Darin
+stehen zwei Arten von Auslösern gleichberechtigt nebeneinander:
+
+- **Teams-Activity** — `InACall`, `Presenting` und die übrigen Graph-Werte.
+- **Nicht am Platz** — lokal erkannt aus Bildschirmsperre, fehlenden Eingaben
+  und Ruhezustand. Ohne Teams, ohne Netz, ohne Berechtigung: die Leerlaufzeit
+  kommt von `CGEventSource` und ist derselbe Wert, den `ioreg` unter
+  `HIDIdleTime` führt.
+
+Dass beide in derselben Liste stehen, erspart eine versteckte Rangfolge: Steht
+„Im Gespräch“ oben, bleibt es beim Gesprächsprofil, auch wenn der Bildschirm
+sperrt. Umsortieren dreht das um.
+
+Der Ruhezustand schaltet auf das Abwesenheitsprofil — Deckel zu heißt weg vom
+Platz. Beim Herunterfahren und Beenden bleibt es beim Grundprofil, weil die App
+danach nichts mehr korrigieren kann.
+
 ## Zwei Eigenheiten, die man kennen muss
 
 **Der AGFEO-Handler ist eine Einbahnstraße.** `adashboard:activate_call_profile`

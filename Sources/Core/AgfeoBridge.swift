@@ -81,6 +81,9 @@ final class AgfeoBridge: ProfileActivating {
     ///
     /// Startet das Dashboard bewusst **nicht**: dafür bleibt keine Zeit, und
     /// ohne laufendes Dashboard lässt sich die Anlage ohnehin nicht schalten.
+    /// Hier wird das alte, synchrone `open` benutzt — ein möglicher
+    /// Fokuswechsel ist beim Einschlafen oder Beenden ohne Belang, dass der
+    /// Befehl ankommt dagegen nicht.
     func activateNow(profile name: String) -> Bool {
         guard let url = Self.makeURL(profile: name) else { return false }
         guard Self.isDashboardRunning else {
@@ -99,9 +102,22 @@ final class AgfeoBridge: ProfileActivating {
         !NSRunningApplication.runningApplications(withBundleIdentifier: dashboardBundleID).isEmpty
     }
 
+    /// Sendet die URL, **ohne** das Dashboard nach vorne zu holen.
+    ///
+    /// Das schlichte `NSWorkspace.shared.open(url)` lässt LaunchServices die
+    /// Ziel-App aktivieren — mitten im Tippen springt dann der Fokus weg. Die
+    /// Konfiguration mit `activates = false` verhindert das.
     @MainActor
-    private func open(_ url: URL) -> Bool {
-        NSWorkspace.shared.open(url)
+    private func open(_ url: URL) async -> Bool {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        do {
+            _ = try await NSWorkspace.shared.open(url, configuration: configuration)
+            return true
+        } catch {
+            Log.notice(.agfeo, "Senden fehlgeschlagen: \(error.localizedDescription)")
+            return false
+        }
     }
 
     /// Startet das Dashboard und wartet, bis der Prozess auftaucht.
