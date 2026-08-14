@@ -57,6 +57,11 @@ actor ProfileController {
     /// Seit wann steht das Zielprofil durchgehend auf dem Grundprofil?
     private(set) var resetPendingSince: Date?
 
+    /// Zuletzt bekannte Graph-Activity; `nil` heißt, Teams ist offline.
+    private var lastKnownActivity: String?
+    /// Lokal erkannt, unabhängig von Teams.
+    private(set) var awayFromDesk = false
+
     init(
         bridge: any ProfileActivating,
         time: any TimeSource = SystemTimeSource(),
@@ -66,6 +71,7 @@ actor ProfileController {
         self.bridge = bridge
         self.time = time
         safety = safetyNet ?? SafetyNet(baseProfile: settings.baseProfile)
+        safety.setAwayProfile(settings.awayProfile)
         manualMode = settings.manualMode
         automationEnabled = settings.automationEnabled
         rules = settings.rules
@@ -76,6 +82,7 @@ actor ProfileController {
     /// Übernimmt geänderte Einstellungen aus dem UI.
     func apply(_ settings: Settings) {
         safety.setBaseProfile(settings.baseProfile)
+        safety.setAwayProfile(settings.awayProfile)
         manualMode = settings.manualMode
         automationEnabled = settings.automationEnabled
         rules = settings.rules
@@ -99,18 +106,49 @@ actor ProfileController {
         switch result {
         case .presence(_, let activity):
             blindSince = nil
-            let engine = RuleEngine(rules: rules, baseProfile: baseProfile)
-            await aim(at: engine.targetProfile(for: activity), reason: "Activity \(activity)")
+            lastKnownActivity = activity
+            await evaluate(reason: "Activity \(activity)")
 
         case .offline:
-            // Teams aus bedeutet real, dass nicht telefoniert wird — also wie
-            // „keine Regel trifft".
+            // Teams aus bedeutet real, dass nicht telefoniert wird. Lokale
+            // Auslöser können trotzdem greifen.
             blindSince = nil
-            await aim(at: baseProfile, reason: "Teams offline")
+            lastKnownActivity = nil
+            await evaluate(reason: "Teams offline")
 
         case .unknown(let failure):
             await stayBlind(failure)
         }
+    }
+
+    /// Zweiter Eingang neben der Teams-Präsenz: lokal erkannte Abwesenheit.
+    ///
+    /// Wirkt sofort, nicht erst beim nächsten Poll — eine Bildschirmsperre soll
+    /// nicht fünf Sekunden nachhängen.
+    func setDeskPresence(_ presence: DeskPresence) async {
+        guard awayFromDesk != presence.isAway else { return }
+        awayFromDesk = presence.isAway
+
+        switch presence {
+        case .away(let reason):
+            Log.info(.controller, "Nicht am Platz (\(reason.text))")
+        case .atDesk:
+            Log.info(.controller, "Wieder am Platz")
+        }
+
+        // Während einer Blindphase wird auch hier nicht geschaltet: ob gerade
+        // ein Gespräch läuft, ist dann unbekannt — und das entscheidet, welche
+        // Regel gewinnt. Der Zustand ist gemerkt und greift beim nächsten
+        // bekannten Poll.
+        guard automationEnabled, blindSince == nil else { return }
+        await evaluate(reason: presence.isAway ? "nicht am Platz" : "wieder am Platz")
+    }
+
+    private func evaluate(reason: String) async {
+        let engine = RuleEngine(rules: rules, baseProfile: baseProfile)
+        let target = engine.targetProfile(
+            activity: lastKnownActivity, awayFromDesk: awayFromDesk)
+        await aim(at: target, reason: reason)
     }
 
     private func aim(at target: String, reason: String) async {

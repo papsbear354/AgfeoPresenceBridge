@@ -27,24 +27,24 @@ final class LifecycleGuard: @unchecked Sendable {
         _ = workspace.addObserver(
             forName: NSWorkspace.willSleepNotification, object: nil, queue: nil
         ) { @Sendable [self] _ in
-            resetIfNeeded(trigger: "Ruhezustand")
+            resetIfNeeded(trigger: "Ruhezustand", occasion: .sleep)
         }
 
         _ = workspace.addObserver(
             forName: NSWorkspace.willPowerOffNotification, object: nil, queue: nil
         ) { @Sendable [self] _ in
-            resetIfNeeded(trigger: "Herunterfahren")
+            resetIfNeeded(trigger: "Herunterfahren", occasion: .shutdown)
         }
 
         _ = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: nil
         ) { @Sendable [self] _ in
-            resetIfNeeded(trigger: "Beenden")
+            resetIfNeeded(trigger: "Beenden", occasion: .shutdown)
         }
     }
 
-    private func resetIfNeeded(trigger: String) {
-        guard let profile = safetyNet.profileNeedingReset() else { return }
+    private func resetIfNeeded(trigger: String, occasion: SafetyNet.Occasion) {
+        guard let profile = safetyNet.profileNeeded(for: occasion) else { return }
 
         Log.notice(
             .controller,

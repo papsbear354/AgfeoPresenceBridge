@@ -22,6 +22,7 @@ final class AppModel: ObservableObject {
             guard settings != oldValue else { return }
             let snapshot = settings
             Task { await controller.apply(snapshot) }
+            updateDeskWatching()
             if settings.tenantId != oldValue.tenantId || settings.clientId != oldValue.clientId {
                 rebuildAuthClient()
             }
@@ -46,11 +47,14 @@ final class AppModel: ObservableObject {
     @Published private(set) var authState: AuthState = .signedOut
     /// Letztes Pollergebnis. `nil` heißt: noch nicht abgefragt.
     @Published private(set) var presence: PresenceResult?
+    /// Lokal erkannt, unabhängig von Teams.
+    @Published private(set) var deskPresence: DeskPresence = .atDesk
 
     /// Meldung, wenn sich der Autostart nicht eintragen ließ.
     @Published private(set) var launchAtLoginProblem: String?
 
     private let bridge = AgfeoBridge()
+    private let deskSource = SystemDeskPresence()
     private let safetyNet: SafetyNet
     private let lifecycle: LifecycleGuard
     private let controller: ProfileController
@@ -81,6 +85,7 @@ final class AppModel: ObservableObject {
         lifecycle.install()
         observeWake()
         reconcileLaunchAtLogin()
+        updateDeskWatching()
         Task { await restoreSession() }
     }
 
@@ -160,6 +165,28 @@ final class AppModel: ObservableObject {
         await poller.stop()
         self.poller = nil
         presence = nil
+    }
+
+    // MARK: Anwesenheit am Platz
+
+    /// Überwacht wird nur, wenn eine aktive Regel den Auslöser braucht.
+    private func updateDeskWatching() {
+        deskSource.apply(settings)
+        guard settings.watchesDesk else {
+            deskSource.stop()
+            deskPresence = .atDesk
+            return
+        }
+        deskSource.start { @Sendable [weak self] presence in
+            await self?.handleDesk(presence)
+        }
+    }
+
+    private func handleDesk(_ presence: DeskPresence) async {
+        deskPresence = presence
+        await controller.setDeskPresence(presence)
+        await refreshFromController()
+        await poller?.setFastInterval(await controller.isOnRuleProfile)
     }
 
     private func handle(_ result: PresenceResult) async {
@@ -295,6 +322,12 @@ final class AppModel: ObservableObject {
     var availabilityLine: String? {
         guard case .presence(let availability, _) = presence else { return nil }
         return "Verfügbarkeit: \(availability)"
+    }
+
+    /// Nur sichtbar, wenn die lokale Erkennung gerade Abwesenheit meldet.
+    var deskLine: String? {
+        guard case .away(let reason) = deskPresence else { return nil }
+        return "Nicht am Platz — \(reason.text)"
     }
 
     // MARK: Profilliste

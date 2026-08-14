@@ -8,6 +8,9 @@ struct MenuBarView: View {
         if let availability = model.availabilityLine {
             Text(availability)
         }
+        if let desk = model.deskLine {
+            Text(desk)
+        }
         Text("Zuletzt gesendet: \(model.lastSentDescription)")
 
         if !model.isSignedIn {

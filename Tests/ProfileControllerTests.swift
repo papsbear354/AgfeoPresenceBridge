@@ -216,6 +216,120 @@ struct ProfileControllerAutomationTests {
     }
 }
 
+@Suite("ProfileController — Abwesenheit am Platz")
+struct ProfileControllerDeskTests {
+    private func makeController(bridge: MockBridge, clock: TestClock) -> ProfileController {
+        var settings = makeSettings()
+        settings.rules = [
+            Rule(activity: "InACall", profileName: "Meeting"),
+            Rule(trigger: .awayFromDesk, profileName: "Abwesend"),
+        ]
+        return ProfileController(bridge: bridge, time: clock, settings: settings)
+    }
+
+    /// Eine Bildschirmsperre soll nicht bis zum nächsten Poll nachhängen.
+    @Test("Abwesenheit schaltet sofort, ohne auf den nächsten Poll zu warten")
+    func awaySwitchesImmediately() async {
+        let bridge = MockBridge()
+        let clock = TestClock()
+        let controller = makeController(bridge: bridge, clock: clock)
+
+        await controller.handle(available)
+        #expect(bridge.sent.isEmpty)
+
+        await controller.setDeskPresence(.away(.screenLocked))
+        #expect(bridge.sent == ["Abwesend"])
+    }
+
+    @Test("Rückkehr an den Platz schaltet mit der üblichen Verzögerung zurück")
+    func returnUsesResetDelay() async {
+        let bridge = MockBridge()
+        let clock = TestClock()
+        let controller = makeController(bridge: bridge, clock: clock)
+
+        await controller.handle(available)
+        await controller.setDeskPresence(.away(.idle))
+        #expect(bridge.sent == ["Abwesend"])
+
+        await controller.setDeskPresence(.atDesk)
+        #expect(bridge.sent == ["Abwesend"])
+
+        clock.advance(6)
+        await controller.handle(available)
+        #expect(bridge.sent == ["Abwesend", "Anwesend"])
+    }
+
+    /// Die Auslieferungsreihenfolge: das Gespräch steht oben.
+    @Test("Während eines Gesprächs ändert die Bildschirmsperre nichts")
+    func callWinsOverAway() async {
+        let bridge = MockBridge()
+        let clock = TestClock()
+        let controller = makeController(bridge: bridge, clock: clock)
+
+        await controller.handle(inACall)
+        await controller.setDeskPresence(.away(.screenLocked))
+
+        #expect(bridge.sent == ["Meeting"])
+    }
+
+    @Test("Nach dem Auflegen greift die Abwesenheit ohne Verzögerung")
+    func awayTakesOverAfterCall() async {
+        let bridge = MockBridge()
+        let clock = TestClock()
+        let controller = makeController(bridge: bridge, clock: clock)
+
+        await controller.handle(inACall)
+        await controller.setDeskPresence(.away(.screenLocked))
+        await controller.handle(available)
+
+        // Ziel ist jetzt „Abwesend", also ein Regeltreffer — und der wartet
+        // nicht auf die Rückschalt-Verzögerung.
+        #expect(bridge.sent == ["Meeting", "Abwesend"])
+    }
+
+    @Test("Ohne Abwesenheitsregel bleibt das Signal wirkungslos")
+    func withoutRuleNothingHappens() async {
+        let bridge = MockBridge()
+        let controller = ProfileController(
+            bridge: bridge, time: TestClock(), settings: makeSettings())
+
+        await controller.handle(available)
+        await controller.setDeskPresence(.away(.screenLocked))
+
+        #expect(bridge.sent.isEmpty)
+    }
+
+    /// Ob gerade ein Gespräch läuft, ist in der Blindphase unbekannt — und das
+    /// entscheidet, welche Regel gewinnt.
+    @Test("Bei unbekanntem Teams-Status wird auch lokal nicht geschaltet")
+    func staysQuietWhileBlind() async {
+        let bridge = MockBridge()
+        let clock = TestClock()
+        let controller = makeController(bridge: bridge, clock: clock)
+
+        await controller.handle(inACall)
+        await controller.handle(.unknown(.network("Netz weg")))
+        await controller.setDeskPresence(.away(.screenLocked))
+        #expect(bridge.sent == ["Meeting"])
+
+        // Sobald der Status wieder bekannt ist, wirkt der gemerkte Zustand.
+        await controller.handle(available)
+        #expect(bridge.sent == ["Meeting", "Abwesend"])
+    }
+
+    @Test("Pausierte Automatik schaltet auch lokal nicht")
+    func pausedAutomationIgnoresDesk() async {
+        let bridge = MockBridge()
+        var settings = makeSettings(automation: false)
+        settings.rules = [Rule(trigger: .awayFromDesk, profileName: "Abwesend")]
+        let controller = ProfileController(
+            bridge: bridge, time: TestClock(), settings: settings)
+
+        await controller.setDeskPresence(.away(.screenLocked))
+        #expect(bridge.sent.isEmpty)
+    }
+}
+
 @Suite("ProfileController — unbekannter Status")
 struct ProfileControllerBlindTests {
     /// Abnahmekriterium 4: Zehn Sekunden ohne bekannten Status ändern nichts.
@@ -445,23 +559,71 @@ struct RuleEngineTests {
 
     @Test("Die erste passende Regel gewinnt")
     func firstMatchWins() {
-        #expect(engine.targetProfile(for: "InACall") == "Meeting")
+        #expect(engine.targetProfile(activity: "InACall") == "Meeting")
     }
 
     @Test("Deaktivierte Regeln werden übersprungen")
     func disabledRulesAreSkipped() {
-        #expect(engine.targetProfile(for: "InAMeeting") == "Anwesend")
+        #expect(engine.targetProfile(activity: "InAMeeting") == "Anwesend")
     }
 
     @Test("Ohne Treffer gilt das Grundprofil")
     func fallsBackToBaseProfile() {
-        #expect(engine.targetProfile(for: "Available") == "Anwesend")
-        #expect(engine.targetProfile(for: "Irgendwas") == "Anwesend")
+        #expect(engine.targetProfile(activity: "Available") == "Anwesend")
+        #expect(engine.targetProfile(activity: "Irgendwas") == "Anwesend")
+        #expect(engine.targetProfile(activity: nil) == "Anwesend")
     }
 
     @Test("Verglichen wird exakt")
     func matchesExactly() {
-        #expect(engine.targetProfile(for: "inacall") == "Anwesend")
-        #expect(engine.targetProfile(for: "Presenting") == "Präsentation")
+        #expect(engine.targetProfile(activity: "inacall") == "Anwesend")
+        #expect(engine.targetProfile(activity: "Presenting") == "Präsentation")
+    }
+}
+
+@Suite("RuleEngine — lokale Abwesenheit")
+struct RuleEngineDeskTests {
+    /// Die Reihenfolge entscheidet, was gewinnt. Hier steht das Gespräch oben.
+    private let callFirst = RuleEngine(
+        rules: [
+            Rule(activity: "InACall", profileName: "Meeting"),
+            Rule(trigger: .awayFromDesk, profileName: "Abwesend"),
+        ],
+        baseProfile: "Anwesend")
+
+    @Test("Abwesenheit greift, wenn keine Activity-Regel passt")
+    func awayMatches() {
+        #expect(callFirst.targetProfile(activity: "Available", awayFromDesk: true) == "Abwesend")
+    }
+
+    @Test("Am Platz bleibt es beim Grundprofil")
+    func atDeskFallsBack() {
+        #expect(callFirst.targetProfile(activity: "Available", awayFromDesk: false) == "Anwesend")
+    }
+
+    /// Die getroffene Auslieferungsentscheidung: Gespräch schlägt Abwesenheit.
+    @Test("Steht das Gespräch oben, gewinnt es gegen die Abwesenheit")
+    func callBeatsAway() {
+        #expect(callFirst.targetProfile(activity: "InACall", awayFromDesk: true) == "Meeting")
+    }
+
+    @Test("Umgedrehte Reihenfolge dreht die Rangfolge um")
+    func orderDecides() {
+        let awayFirst = RuleEngine(
+            rules: [
+                Rule(trigger: .awayFromDesk, profileName: "Abwesend"),
+                Rule(activity: "InACall", profileName: "Meeting"),
+            ],
+            baseProfile: "Anwesend")
+        #expect(awayFirst.targetProfile(activity: "InACall", awayFromDesk: true) == "Abwesend")
+        #expect(awayFirst.targetProfile(activity: "InACall", awayFromDesk: false) == "Meeting")
+    }
+
+    /// Teams aus, aber der Rechner steht offen: dann zählt nur noch das lokale
+    /// Signal.
+    @Test("Bei Teams offline greift die Abwesenheit weiterhin")
+    func worksWithoutTeams() {
+        #expect(callFirst.targetProfile(activity: nil, awayFromDesk: true) == "Abwesend")
+        #expect(callFirst.targetProfile(activity: nil, awayFromDesk: false) == "Anwesend")
     }
 }

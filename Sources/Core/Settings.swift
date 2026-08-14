@@ -1,30 +1,97 @@
 import Foundation
 
+/// Was eine Regel auslöst.
+///
+/// In der Datei steht ein einzelner String: entweder eine Graph-Activity oder
+/// ein Auslöser mit `local:`-Präfix. Ein Graph-Wert kann keinen Doppelpunkt
+/// enthalten, die beiden können sich also nicht in die Quere kommen.
+enum RuleTrigger: Equatable, Hashable, Sendable, Codable {
+    /// Graph-Activity in exakter Schreibweise.
+    case activity(String)
+    /// Lokal erkannt: Bildschirm gesperrt, keine Eingabe oder Ruhezustand.
+    case awayFromDesk
+
+    static let awayToken = "local:awayFromDesk"
+
+    init(rawValue: String) {
+        self = rawValue == Self.awayToken ? .awayFromDesk : .activity(rawValue)
+    }
+
+    var rawValue: String {
+        switch self {
+        case .activity(let value): return value
+        case .awayFromDesk: return Self.awayToken
+        }
+    }
+
+    /// Beschriftung für die Oberfläche.
+    var label: String {
+        switch self {
+        case .activity(let value): return GraphActivity.label(for: value)
+        case .awayFromDesk: return "Nicht am Platz (lokal erkannt)"
+        }
+    }
+
+    init(from decoder: any Decoder) throws {
+        self.init(rawValue: try decoder.singleValueContainer().decode(String.self))
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}
+
 /// Eine Regel des Regelwerks (SPEC §7). Geordnete Liste, erste
 /// Übereinstimmung gewinnt.
 struct Rule: Codable, Identifiable, Equatable, Sendable {
     var id: UUID
     var enabled: Bool
-    /// Graph-Activity in exakter Schreibweise.
-    var activity: String
+    var trigger: RuleTrigger
     /// AGFEO-Rufprofil in exakter Schreibweise.
     var profileName: String
 
-    init(id: UUID = UUID(), enabled: Bool = true, activity: String, profileName: String) {
+    init(
+        id: UUID = UUID(),
+        enabled: Bool = true,
+        trigger: RuleTrigger,
+        profileName: String
+    ) {
         self.id = id
         self.enabled = enabled
-        self.activity = activity
+        self.trigger = trigger
         self.profileName = profileName
     }
 
-    /// Die Voreinstellungen in der Spec führen keine IDs. Fehlt eine, wird sie
-    /// beim Laden erzeugt, statt das Laden der ganzen Datei scheitern zu lassen.
+    init(id: UUID = UUID(), enabled: Bool = true, activity: String, profileName: String) {
+        self.init(id: id, enabled: enabled, trigger: .activity(activity), profileName: profileName)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, enabled, trigger, activity, profileName
+    }
+
+    /// Fehlt eine ID, wird sie erzeugt, statt das Laden der ganzen Datei
+    /// scheitern zu lassen. Ältere Dateien führen statt `trigger` ein Feld
+    /// `activity` — das wird weiterhin gelesen.
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
-        activity = try container.decode(String.self, forKey: .activity)
         profileName = try container.decode(String.self, forKey: .profileName)
+        if let trigger = try container.decodeIfPresent(RuleTrigger.self, forKey: .trigger) {
+            self.trigger = trigger
+        } else {
+            trigger = .activity(try container.decode(String.self, forKey: .activity))
+        }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(enabled, forKey: .enabled)
+        try container.encode(trigger, forKey: .trigger)
+        try container.encode(profileName, forKey: .profileName)
     }
 }
 
@@ -123,6 +190,17 @@ struct Settings: Codable, Equatable, Sendable {
     var automationEnabled: Bool = true
     var launchAtLogin: Bool = true
 
+    // MARK: Abwesenheit am Platz
+    //
+    // Wird nur überwacht, wenn eine aktive Regel den Auslöser „Nicht am Platz“
+    // benutzt. Ohne solche Regel läuft nichts davon.
+
+    /// Bildschirmsperre gilt sofort als abwesend, Entsperren sofort als zurück.
+    var awayOnScreenLock: Bool = true
+    /// Keine Tastatur- oder Mauseingabe für die eingestellte Dauer.
+    var awayOnIdle: Bool = true
+    var idleThresholdSeconds: Int = 600
+
     /// Auslieferungszustand des Regelwerks.
     ///
     /// `Presenting` gehört zwingend dazu: Teilt man während eines Gesprächs den
@@ -168,6 +246,20 @@ struct Settings: Codable, Equatable, Sendable {
         manualMode = try c.decodeIfPresent(ManualMode.self, forKey: .manualMode) ?? d.manualMode
         automationEnabled = try c.decodeIfPresent(Bool.self, forKey: .automationEnabled) ?? d.automationEnabled
         launchAtLogin = try c.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? d.launchAtLogin
+        awayOnScreenLock = try c.decodeIfPresent(Bool.self, forKey: .awayOnScreenLock) ?? d.awayOnScreenLock
+        awayOnIdle = try c.decodeIfPresent(Bool.self, forKey: .awayOnIdle) ?? d.awayOnIdle
+        idleThresholdSeconds = try c.decodeIfPresent(Int.self, forKey: .idleThresholdSeconds) ?? d.idleThresholdSeconds
+    }
+
+    /// Wird der Auslöser „Nicht am Platz“ überhaupt gebraucht? Ohne aktive
+    /// Regel wird nichts überwacht.
+    var watchesDesk: Bool {
+        rules.contains { $0.enabled && $0.trigger == .awayFromDesk }
+    }
+
+    /// Profil der ersten aktiven Abwesenheitsregel — das Ziel beim Einschlafen.
+    var awayProfile: String? {
+        rules.first { $0.enabled && $0.trigger == .awayFromDesk }?.profileName
     }
 }
 

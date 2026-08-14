@@ -128,6 +128,9 @@ private struct ProfilesTab: View {
                 Text("Regeln — erste Übereinstimmung gewinnt")
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
+                    Text("„Nicht am Platz“ wird lokal erkannt — über Bildschirmsperre, "
+                         + "fehlende Eingaben und den Ruhezustand, ohne Teams. Steht eine "
+                         + "Gesprächsregel darüber, gewinnt das Gespräch.")
                     Text("`Busy` nicht als Regel verwenden: ein reiner Kalendertermin ohne "
                          + "Gespräch liefert genau diesen Wert — ebenso ein von Hand "
                          + "gesetztes „Beschäftigt“. Beides würde das Telefon umleiten, "
@@ -160,8 +163,10 @@ private struct RuleRow: View {
             Toggle("", isOn: $rule.enabled)
                 .labelsHidden()
 
-            Picker("", selection: $rule.activity) {
-                ForEach(activityOptions, id: \.self) { Text($0).tag($0) }
+            Picker("", selection: $rule.trigger) {
+                ForEach(triggerOptions, id: \.self) { trigger in
+                    Text(Self.label(for: trigger)).tag(trigger)
+                }
             }
             .labelsHidden()
 
@@ -183,12 +188,23 @@ private struct RuleRow: View {
         }
     }
 
-    /// Ein von Hand eingetragener Wert soll nicht stillschweigend verschwinden,
-    /// nur weil er nicht in der Auswahlliste steht.
-    private var activityOptions: [String] {
-        GraphActivity.selectable.contains(rule.activity)
-            ? GraphActivity.selectable
-            : GraphActivity.selectable + [rule.activity]
+    /// Der lokale Auslöser steht oben, danach die Graph-Activities. Ein von
+    /// Hand eingetragener Wert soll nicht stillschweigend verschwinden, nur
+    /// weil er nicht in der Auswahlliste steht.
+    private var triggerOptions: [RuleTrigger] {
+        var options: [RuleTrigger] = [.awayFromDesk]
+        options += GraphActivity.selectable.map { RuleTrigger.activity($0) }
+        if !options.contains(rule.trigger) { options.append(rule.trigger) }
+        return options
+    }
+
+    /// Activities in exakter Schreibweise — darauf kommt es an. Der lokale
+    /// Auslöser hat keinen Graph-Namen und steht deshalb im Klartext da.
+    static func label(for trigger: RuleTrigger) -> String {
+        switch trigger {
+        case .activity(let value): return value
+        case .awayFromDesk: return "Nicht am Platz (lokal)"
+        }
     }
 
     private var profileOptions: [String] {
@@ -235,6 +251,33 @@ private struct BehaviourTab: View {
                      + "zurück. Sonst bliebe das Telefon umgeleitet, weil das WLAN weg war.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle("Bildschirmsperre zählt als abwesend",
+                       isOn: $model.settings.awayOnScreenLock)
+                Toggle("Fehlende Eingaben zählen als abwesend",
+                       isOn: $model.settings.awayOnIdle)
+                Stepper(value: $model.settings.idleThresholdSeconds, in: 60...3600, step: 60) {
+                    Text("Nach \(model.settings.idleThresholdSeconds / 60) min ohne Eingabe")
+                }
+                .disabled(!model.settings.awayOnIdle)
+            } header: {
+                Text("Nicht am Platz")
+            } footer: {
+                VStack(alignment: .leading, spacing: 4) {
+                    if model.settings.watchesDesk {
+                        Text("Derzeit erkannt: \(model.deskLine ?? "am Platz").")
+                    } else {
+                        Text("Wird erst wirksam, wenn im Tab „Rufprofile“ eine Regel den "
+                             + "Auslöser „Nicht am Platz“ benutzt.")
+                    }
+                    Text("Der Ruhezustand zählt immer als abwesend: Deckel zu heißt weg "
+                         + "vom Platz. Die Erkennung läuft rein lokal und braucht keine "
+                         + "Berechtigung.")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
 
             Section("Manuelles Schalten") {
