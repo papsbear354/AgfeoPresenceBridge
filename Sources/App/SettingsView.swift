@@ -12,7 +12,9 @@ struct SettingsView: View {
             BehaviourTab(model: model)
                 .tabItem { Label("Verhalten", systemImage: "slider.horizontal.3") }
         }
-        .frame(width: 540, height: 460)
+        // Höher als nötig wirkt luftig; zu niedrig versteckt ganze Abschnitte
+        // hinter einem Scrollbalken, den im Einstellungsfenster niemand sucht.
+        .frame(width: 560, height: 600)
     }
 }
 
@@ -267,6 +269,35 @@ private struct BehaviourTab: View {
 
     var body: some View {
         Form {
+            // Bewusst ganz oben: das ist der übergeordnete Schalter, alles
+            // Weitere gilt nur innerhalb dieses Fensters.
+            Section {
+                Toggle("Nur während der Arbeitszeit", isOn: $model.settings.workingHours.enabled)
+
+                if model.settings.workingHours.enabled {
+                    WeekdayPicker(days: $model.settings.workingHours.days)
+                    DatePicker("Von", selection: minuteBinding(\.startMinute),
+                               displayedComponents: .hourAndMinute)
+                    DatePicker("Bis", selection: minuteBinding(\.endMinute),
+                               displayedComponents: .hourAndMinute)
+                }
+            } header: {
+                Text("Arbeitszeit")
+            } footer: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Außerhalb dieser Zeit wird nichts abgefragt, nichts erkannt und "
+                         + "nichts geschaltet. Beim Feierabend geht das Rufprofil einmal "
+                         + "auf das Grundprofil zurück, danach ist Ruhe.")
+                    Text("Manuelles Schalten aus dem Menü funktioniert weiterhin jederzeit.")
+                    if model.settings.workingHours.enabled {
+                        Text("Derzeit: \(model.withinWorkingHours ? "innerhalb" : "außerhalb") "
+                             + "der Arbeitszeit.")
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
             Section {
                 Stepper(value: $model.settings.pollIntervalSeconds, in: 2...60) {
                     Text("Abfrage-Intervall: \(model.settings.pollIntervalSeconds) s")
@@ -297,33 +328,6 @@ private struct BehaviourTab: View {
                      + "zurück. Sonst bliebe das Telefon umgeleitet, weil das WLAN weg war.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            }
-
-            Section {
-                Toggle("Nur während der Arbeitszeit", isOn: $model.settings.workingHours.enabled)
-
-                if model.settings.workingHours.enabled {
-                    WeekdayPicker(days: $model.settings.workingHours.days)
-                    DatePicker("Von", selection: minuteBinding(\.startMinute),
-                               displayedComponents: .hourAndMinute)
-                    DatePicker("Bis", selection: minuteBinding(\.endMinute),
-                               displayedComponents: .hourAndMinute)
-                }
-            } header: {
-                Text("Arbeitszeit")
-            } footer: {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Außerhalb dieser Zeit wird nichts abgefragt, nichts erkannt und "
-                         + "nichts geschaltet. Beim Feierabend geht das Rufprofil einmal "
-                         + "auf das Grundprofil zurück, danach ist Ruhe.")
-                    Text("Manuelles Schalten aus dem Menü funktioniert weiterhin jederzeit.")
-                    if model.settings.workingHours.enabled {
-                        Text("Derzeit: \(model.withinWorkingHours ? "innerhalb" : "außerhalb") "
-                             + "der Arbeitszeit.")
-                    }
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
             }
 
             Section {
