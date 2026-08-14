@@ -18,9 +18,18 @@ jobs:
       - name: Projekt erzeugen
         run: xcodegen generate
 
+      # Ad-hoc signieren: project.yml verlangt für die Entwicklung ein
+      # Zertifikat des Teams, das auf einem Runner nicht existiert. Für Tests
+      # genügt eine Ad-hoc-Signatur — die Tests fassen weder Keychain noch
+      # Berechtigungen an.
       - name: Tests
         run: |
           set -o pipefail
           xcodebuild -project AGFEOPresenceBridge.xcodeproj \
             -scheme AGFEOPresenceBridge \
-            -configuration Debug test
+            -configuration Debug \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            test
