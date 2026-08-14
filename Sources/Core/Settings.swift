@@ -131,6 +131,11 @@ struct Settings: Codable, Equatable, Sendable {
     /// mitten in der Präsentation auf das Grundprofil zurück und das Telefon
     /// klingelte wieder durch (Nachtrag 01 §3).
     ///
+    /// Am 14.08.2026 im Betrieb bestätigt: `Busy` / `InACall` wechselt beim
+    /// Teilen auf `DoNotDisturb` / `Presenting` und danach zurück. Die
+    /// `availability` wechselt also mit — ausgewertet wird trotzdem nur die
+    /// Activity.
+    ///
     /// `InAMeeting` ist bewusst nicht vorbelegt: Teams setzt das häufig allein
     /// wegen eines Kalendereintrags, auch ohne laufendes Gespräch.
     ///

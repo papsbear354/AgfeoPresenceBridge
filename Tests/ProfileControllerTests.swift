@@ -66,7 +66,10 @@ private func makeSettings(
 }
 
 private let inACall = PresenceResult.presence(availability: "Busy", activity: "InACall")
-private let presenting = PresenceResult.presence(availability: "Busy", activity: "Presenting")
+/// Beim Bildschirmteilen wechselt auch die `availability` — am 14.08.2026 im
+/// Betrieb gemessen. Ausgewertet wird nur die Activity.
+private let presenting = PresenceResult.presence(
+    availability: "DoNotDisturb", activity: "Presenting")
 private let available = PresenceResult.presence(availability: "Available", activity: "Available")
 
 @Suite("ProfileController — Automatik")
