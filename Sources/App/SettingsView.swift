@@ -216,8 +216,54 @@ private struct RuleRow: View {
 
 // MARK: - Verhalten
 
+/// Wochentage als Reihe von Schaltern. `Calendar` zählt ab Sonntag; die
+/// Anzeige beginnt bei dem Tag, den das System als Wochenanfang führt.
+private struct WeekdayPicker: View {
+    @Binding var days: [Int]
+
+    private var order: [Int] {
+        let first = Calendar.current.firstWeekday
+        return (0..<7).map { (first - 1 + $0) % 7 + 1 }
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(order, id: \.self) { day in
+                Toggle(Calendar.current.veryShortWeekdaySymbols[day - 1], isOn: Binding(
+                    get: { days.contains(day) },
+                    set: { isOn in
+                        if isOn {
+                            if !days.contains(day) { days.append(day) }
+                        } else {
+                            days.removeAll { $0 == day }
+                        }
+                        days.sort()
+                    }))
+                .toggleStyle(.button)
+            }
+        }
+    }
+}
+
 private struct BehaviourTab: View {
     @ObservedObject var model: AppModel
+
+    /// Übersetzt zwischen „Minuten seit Mitternacht“ und dem `Date`, das
+    /// `DatePicker` erwartet. Das Datum selbst ist bedeutungslos.
+    private func minuteBinding(_ path: WritableKeyPath<WorkingHours, Int>) -> Binding<Date> {
+        Binding(
+            get: {
+                let minutes = model.settings.workingHours[keyPath: path]
+                return Calendar.current.date(
+                    bySettingHour: minutes / 60 % 24, minute: minutes % 60, second: 0,
+                    of: Date()) ?? Date()
+            },
+            set: { date in
+                let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
+                model.settings.workingHours[keyPath: path] =
+                    (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+            })
+    }
 
     var body: some View {
         Form {
@@ -251,6 +297,33 @@ private struct BehaviourTab: View {
                      + "zurück. Sonst bliebe das Telefon umgeleitet, weil das WLAN weg war.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle("Nur während der Arbeitszeit", isOn: $model.settings.workingHours.enabled)
+
+                if model.settings.workingHours.enabled {
+                    WeekdayPicker(days: $model.settings.workingHours.days)
+                    DatePicker("Von", selection: minuteBinding(\.startMinute),
+                               displayedComponents: .hourAndMinute)
+                    DatePicker("Bis", selection: minuteBinding(\.endMinute),
+                               displayedComponents: .hourAndMinute)
+                }
+            } header: {
+                Text("Arbeitszeit")
+            } footer: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Außerhalb dieser Zeit wird nichts abgefragt, nichts erkannt und "
+                         + "nichts geschaltet. Beim Feierabend geht das Rufprofil einmal "
+                         + "auf das Grundprofil zurück, danach ist Ruhe.")
+                    Text("Manuelles Schalten aus dem Menü funktioniert weiterhin jederzeit.")
+                    if model.settings.workingHours.enabled {
+                        Text("Derzeit: \(model.withinWorkingHours ? "innerhalb" : "außerhalb") "
+                             + "der Arbeitszeit.")
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
 
             Section {

@@ -207,6 +207,21 @@ actor ProfileController {
         await send(baseProfile, reason: "Sicherheitsrückfall nach Blindphase")
     }
 
+    /// Ende der Arbeitszeit: einmal aufräumen, danach schweigen.
+    ///
+    /// Was die App selbst verstellt hat, wird zurückgenommen — sonst bliebe das
+    /// Telefon über Nacht umgeleitet. Anschließend werden die Signalquellen
+    /// abgeschaltet, es kommt also ohnehin nichts mehr an.
+    func standDown() async {
+        resetPendingSince = nil
+        blindSince = nil
+        lastKnownActivity = nil
+        awayFromDesk = false
+
+        guard let lastSent = lastSentProfile, lastSent != baseProfile else { return }
+        await send(baseProfile, reason: "Ende der Arbeitszeit")
+    }
+
     // MARK: Manuelles Schalten
 
     @discardableResult

@@ -22,6 +22,9 @@ final class AppModel: ObservableObject {
             guard settings != oldValue else { return }
             let snapshot = settings
             Task { await controller.apply(snapshot) }
+            if settings.workingHours != oldValue.workingHours {
+                checkSchedule()
+            }
             updateDeskWatching()
             if settings.tenantId != oldValue.tenantId || settings.clientId != oldValue.clientId {
                 rebuildAuthClient()
@@ -49,6 +52,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var presence: PresenceResult?
     /// Lokal erkannt, unabhängig von Teams.
     @Published private(set) var deskPresence: DeskPresence = .atDesk
+    /// Außerhalb der Arbeitszeit ruht die Automatik vollständig.
+    @Published private(set) var withinWorkingHours = true
 
     /// Meldung, wenn sich der Autostart nicht eintragen ließ.
     @Published private(set) var launchAtLoginProblem: String?
@@ -62,6 +67,7 @@ final class AppModel: ObservableObject {
     private var auth: AuthClient
     private var poller: PresencePoller?
     private var persistTask: Task<Void, Never>?
+    private var scheduleTimer: Timer?
 
     init() {
         let loaded = SettingsStore.load()
@@ -85,6 +91,8 @@ final class AppModel: ObservableObject {
         lifecycle.install()
         observeWake()
         reconcileLaunchAtLogin()
+        withinWorkingHours = loaded.workingHours.contains(Date())
+        startScheduleWatch()
         updateDeskWatching()
         Task { await restoreSession() }
     }
@@ -149,6 +157,7 @@ final class AppModel: ObservableObject {
 
     private func startPolling() async {
         await stopPolling()
+        guard isSignedIn, withinWorkingHours else { return }
         let poller = PresencePoller(
             auth: auth,
             normalInterval: TimeInterval(settings.pollIntervalSeconds),
@@ -167,12 +176,50 @@ final class AppModel: ObservableObject {
         presence = nil
     }
 
+    // MARK: Arbeitszeit
+
+    /// Prüft regelmäßig, ob das Zeitfenster begonnen oder geendet hat. Eine
+    /// halbe Minute genügt: an einer Grenze kommt es auf Sekunden nicht an.
+    private func startScheduleWatch() {
+        scheduleTimer?.invalidate()
+        let timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) {
+            @Sendable [weak self] _ in
+            Task { @MainActor in self?.checkSchedule() }
+        }
+        timer.tolerance = 10
+        scheduleTimer = timer
+    }
+
+    private func checkSchedule() {
+        let inside = settings.workingHours.contains(Date())
+        guard inside != withinWorkingHours else { return }
+        withinWorkingHours = inside
+        Task { await applySchedule(inside) }
+    }
+
+    private func applySchedule(_ inside: Bool) async {
+        if inside {
+            Log.info(.app, "Arbeitszeit beginnt, Automatik läuft wieder")
+            await startPolling()
+            updateDeskWatching()
+        } else {
+            // Erst die Quellen abschalten, dann aufräumen — sonst könnte ein
+            // gerade laufender Poll noch dazwischenfunken.
+            Log.info(.app, "Arbeitszeit endet, Automatik ruht")
+            await stopPolling()
+            deskSource.stop()
+            deskPresence = .atDesk
+            await controller.standDown()
+            await refreshFromController()
+        }
+    }
+
     // MARK: Anwesenheit am Platz
 
     /// Überwacht wird nur, wenn eine aktive Regel den Auslöser braucht.
     private func updateDeskWatching() {
         deskSource.apply(settings)
-        guard settings.watchesDesk else {
+        guard settings.watchesDesk, withinWorkingHours else {
             deskSource.stop()
             deskPresence = .atDesk
             return
@@ -278,7 +325,7 @@ final class AppModel: ObservableObject {
         }
         // Unbekannter Status ist ein Warnzustand: die App schaltet dann nicht.
         if case .unknown = presence { return "exclamationmark.triangle" }
-        if !settings.automationEnabled { return "phone.badge.plus" }
+        if !settings.automationEnabled || !withinWorkingHours { return "phone.badge.plus" }
         if let last = lastSentProfile, last != settings.baseProfile { return "phone.fill" }
         return "phone"
     }
@@ -302,6 +349,10 @@ final class AppModel: ObservableObject {
         case .working: return "Anmeldung wird geprüft…"
         case .failed(let message): return message
         case .signedIn: break
+        }
+
+        guard withinWorkingHours else {
+            return "Außerhalb der Arbeitszeit — es wird nicht geschaltet"
         }
 
         switch presence {

@@ -201,6 +201,9 @@ struct Settings: Codable, Equatable, Sendable {
     var awayOnIdle: Bool = true
     var idleThresholdSeconds: Int = 600
 
+    /// Zeitfenster, in dem die Automatik überhaupt arbeitet.
+    var workingHours = WorkingHours()
+
     /// Auslieferungszustand des Regelwerks.
     ///
     /// `Presenting` gehört zwingend dazu: Teilt man während eines Gesprächs den
@@ -249,6 +252,7 @@ struct Settings: Codable, Equatable, Sendable {
         awayOnScreenLock = try c.decodeIfPresent(Bool.self, forKey: .awayOnScreenLock) ?? d.awayOnScreenLock
         awayOnIdle = try c.decodeIfPresent(Bool.self, forKey: .awayOnIdle) ?? d.awayOnIdle
         idleThresholdSeconds = try c.decodeIfPresent(Int.self, forKey: .idleThresholdSeconds) ?? d.idleThresholdSeconds
+        workingHours = try c.decodeIfPresent(WorkingHours.self, forKey: .workingHours) ?? d.workingHours
     }
 
     /// Wird der Auslöser „Nicht am Platz“ überhaupt gebraucht? Ohne aktive
