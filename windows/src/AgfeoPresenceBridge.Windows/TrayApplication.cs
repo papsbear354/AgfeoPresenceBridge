@@ -1,4 +1,3 @@
-using System.Drawing;
 using System.Windows.Forms;
 using AgfeoPresenceBridge.Core;
 
@@ -12,6 +11,7 @@ internal sealed class TrayApplication : ApplicationContext
 {
     private readonly AppModel _model = new();
     private readonly NotifyIcon _tray;
+    private readonly ContextMenuStrip _menu = new();
     private SettingsForm? _settings;
 
     private static readonly (int Minutes, string Label)[] Durations =
@@ -23,73 +23,101 @@ internal sealed class TrayApplication : ApplicationContext
     {
         _tray = new NotifyIcon
         {
-            Icon = SystemIcons.Application,
+            Icon = TrayIcons.For(TrayIcons.State.Warning),
             Text = "AGFEO Presence Bridge",
             Visible = true,
-            ContextMenuStrip = new ContextMenuStrip(),
+            ContextMenuStrip = _menu,
         };
 
-        // Erst beim Öffnen aufbauen: Profile, Zustand und Verlauf ändern sich
-        // laufend, ein einmal gebautes Menü wäre veraltet.
-        _tray.ContextMenuStrip.Opening += (_, _) => BuildMenu();
-        _model.Changed += OnModelChanged;
+        // Ein Linksklick öffnet von sich aus kein Menü — ohne das hier trifft
+        // man nur mit der rechten Maustaste etwas, was kaum jemand erwartet.
+        _tray.MouseUp += (_, args) =>
+        {
+            if (args.Button != MouseButtons.Left) return;
+            BuildMenu();
+            _menu.Show(Cursor.Position);
+        };
 
-        Application.ApplicationExit += async (_, _) => await _model.ShutdownAsync();
-        UpdateTooltip();
+        // Beim Rechtsklick baut WinForms das Menü selbst auf; hier nur füllen.
+        _menu.Opening += (_, _) => BuildMenu();
+
+        _model.Changed += OnModelChanged;
+        Application.ApplicationExit += (_, _) => Safe.Run(async () => await _model.ShutdownAsync());
+        Refresh();
     }
 
     private void OnModelChanged()
     {
-        if (_tray.ContextMenuStrip!.InvokeRequired)
-            _tray.ContextMenuStrip.BeginInvoke(UpdateTooltip);
-        else UpdateTooltip();
+        if (_menu.InvokeRequired) _menu.BeginInvoke(Refresh);
+        else Refresh();
     }
 
-    private void UpdateTooltip()
+    private void Refresh()
     {
-        // Der Infobereich erlaubt nur 63 Zeichen.
+        _tray.Icon = TrayIcons.For(IconState);
+
+        // Der Infobereich zeigt höchstens 63 Zeichen.
         string text = $"{_model.StatusLine}\nZuletzt: {_model.LastSentDescription}";
-        _tray.Text = text.Length > 63 ? text[..60] + "…" : text;
+        _tray.Text = text.Length > 63 ? string.Concat(text.AsSpan(0, 60), "…") : text;
+    }
+
+    private TrayIcons.State IconState
+    {
+        get
+        {
+            if (!_model.IsSignedIn || _model.Presence is PresenceResult.Unknown)
+                return TrayIcons.State.Warning;
+            if (!_model.Settings.AutomationEnabled || !_model.WithinWorkingHours)
+                return TrayIcons.State.Paused;
+            if (_model.LastSentProfile is { } last && last != _model.Settings.BaseProfile)
+                return TrayIcons.State.RuleProfile;
+            return TrayIcons.State.Base;
+        }
     }
 
     private void BuildMenu()
     {
-        ContextMenuStrip menu = _tray.ContextMenuStrip!;
-        menu.Items.Clear();
+        _menu.SuspendLayout();
+        _menu.Items.Clear();
 
-        menu.Items.Add(new ToolStripLabel(_model.StatusLine));
-        if (_model.DeskLine is { } desk) menu.Items.Add(new ToolStripLabel(desk));
-        if (_model.CallLine is { } call) menu.Items.Add(new ToolStripLabel(call));
-        menu.Items.Add(new ToolStripLabel($"Zuletzt gesendet: {_model.LastSentDescription}"));
+        _menu.Items.Add(new ToolStripLabel(_model.StatusLine));
+        if (_model.DeskLine is { } desk) _menu.Items.Add(new ToolStripLabel(desk));
+        if (_model.CallLine is { } call) _menu.Items.Add(new ToolStripLabel(call));
+        _menu.Items.Add(new ToolStripLabel($"Zuletzt gesendet: {_model.LastSentDescription}"));
 
         if (!_model.IsSignedIn)
         {
-            menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Bei Microsoft anmelden…", null, async (_, _) => await _model.SignInAsync());
+            _menu.Items.Add(new ToolStripSeparator());
+            _menu.Items.Add("Bei Microsoft anmelden…", null,
+                (_, _) => Safe.Run(async () => await _model.SignInAsync()));
         }
 
-        menu.Items.Add(new ToolStripSeparator());
+        _menu.Items.Add(new ToolStripSeparator());
 
         var baseMenu = new ToolStripMenuItem("Grundprofil");
         foreach (string profile in _model.Settings.KnownProfiles)
         {
-            var item = new ToolStripMenuItem(profile)
+            string chosen = profile;
+            baseMenu.DropDownItems.Add(new ToolStripMenuItem(profile, null, (_, _) =>
+                Safe.Run(async () =>
+                {
+                    _model.Settings.BaseProfile = chosen;
+                    await _model.ApplySettingsAsync(_model.Settings);
+                }))
             {
                 Checked = profile == _model.Settings.BaseProfile,
-            };
-            item.Click += async (_, _) =>
-            {
-                _model.Settings.BaseProfile = profile;
-                await _model.ApplySettingsAsync(_model.Settings);
-            };
-            baseMenu.DropDownItems.Add(item);
+            });
         }
-        menu.Items.Add(baseMenu);
+        _menu.Items.Add(baseMenu);
 
         var switchMenu = new ToolStripMenuItem("Jetzt schalten auf");
         foreach (string profile in _model.Settings.KnownProfiles)
-            switchMenu.DropDownItems.Add(profile, null, async (_, _) => await _model.SendAsync(profile));
-        menu.Items.Add(switchMenu);
+        {
+            string chosen = profile;
+            switchMenu.DropDownItems.Add(profile, null,
+                (_, _) => Safe.Run(async () => await _model.SendAsync(chosen)));
+        }
+        _menu.Items.Add(switchMenu);
 
         var timedMenu = new ToolStripMenuItem("Befristet schalten");
         foreach ((int minutes, string label) in Durations)
@@ -97,18 +125,20 @@ internal sealed class TrayApplication : ApplicationContext
             var duration = new ToolStripMenuItem(label);
             foreach (string profile in _model.Settings.KnownProfiles)
             {
-                duration.DropDownItems.Add(profile, null, async (_, _) =>
-                    await _model.SendAsync(profile, TimeSpan.FromMinutes(minutes)));
+                string chosen = profile;
+                int span = minutes;
+                duration.DropDownItems.Add(profile, null, (_, _) =>
+                    Safe.Run(async () => await _model.SendAsync(chosen, TimeSpan.FromMinutes(span))));
             }
             timedMenu.DropDownItems.Add(duration);
         }
-        menu.Items.Add(timedMenu);
+        _menu.Items.Add(timedMenu);
 
         if (_model.HeldProfile is { } held)
         {
             string suffix = _model.HoldUntil is { } until ? $" bis {until:HH:mm}" : "";
-            menu.Items.Add($"„{held}“ gehalten{suffix} — Automatik übernehmen lassen",
-                null, async (_, _) => await _model.EndHoldAsync());
+            _menu.Items.Add($"„{held}“ gehalten{suffix} — Automatik übernehmen lassen", null,
+                (_, _) => Safe.Run(async () => await _model.EndHoldAsync()));
         }
 
         if (_model.History.Count > 0)
@@ -121,51 +151,50 @@ internal sealed class TrayApplication : ApplicationContext
                     + (record.Delivered ? "" : " (fehlgeschlagen)")
                     + $" — {record.Reason}"));
             }
-            menu.Items.Add(history);
+            _menu.Items.Add(history);
         }
 
-        menu.Items.Add(new ToolStripSeparator());
+        _menu.Items.Add(new ToolStripSeparator());
 
-        var automation = new ToolStripMenuItem("Automatik aktiv")
+        _menu.Items.Add(new ToolStripMenuItem("Automatik aktiv", null, (_, _) =>
+            Safe.Run(async () =>
+            {
+                _model.Settings.AutomationEnabled = !_model.Settings.AutomationEnabled;
+                await _model.ApplySettingsAsync(_model.Settings);
+            }))
         {
             Checked = _model.Settings.AutomationEnabled,
-        };
-        automation.Click += async (_, _) =>
-        {
-            _model.Settings.AutomationEnabled = !_model.Settings.AutomationEnabled;
-            await _model.ApplySettingsAsync(_model.Settings);
-        };
-        menu.Items.Add(automation);
+        });
 
-        menu.Items.Add("Einstellungen…", null, (_, _) => ShowSettings());
-        menu.Items.Add("Log anzeigen", null, (_, _) => OpenLog());
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Beenden", null, (_, _) => ExitThread());
+        _menu.Items.Add("Einstellungen…", null, (_, _) => Safe.Run(ShowSettings));
+        _menu.Items.Add("Log anzeigen", null, (_, _) => Safe.Run(OpenLog));
+        _menu.Items.Add(new ToolStripSeparator());
+        _menu.Items.Add("Beenden", null, (_, _) => ExitThread());
+
+        _menu.ResumeLayout();
     }
 
     private void ShowSettings()
     {
         if (_settings is { IsDisposed: false })
         {
+            _settings.WindowState = FormWindowState.Normal;
             _settings.Activate();
             return;
         }
         _settings = new SettingsForm(_model);
         _settings.Show();
+        _settings.Activate();
     }
 
     private static void OpenLog()
     {
-        try
+        System.IO.Directory.CreateDirectory(Log.Directory);
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
         {
-            if (!File.Exists(Log.FilePath)) System.IO.Directory.CreateDirectory(Log.Directory);
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = File.Exists(Log.FilePath) ? Log.FilePath : Log.Directory,
-                UseShellExecute = true,
-            });
-        }
-        catch (Exception error) { Log.Error($"Log nicht zu öffnen: {error.Message}"); }
+            FileName = File.Exists(Log.FilePath) ? Log.FilePath : Log.Directory,
+            UseShellExecute = true,
+        });
     }
 
     protected override void Dispose(bool disposing)
@@ -174,9 +203,44 @@ internal sealed class TrayApplication : ApplicationContext
         {
             _tray.Visible = false;
             _tray.Dispose();
+            _menu.Dispose();
             _model.Dispose();
         }
         base.Dispose(disposing);
+    }
+}
+
+/// <summary>
+/// Führt Arbeit aus einem Ereignisbehandler aus, ohne das Programm zu
+/// gefährden.
+/// </summary>
+/// <remarks>
+/// Ereignisbehandler in WinForms sind <c>void</c>. Wird daraus eine
+/// asynchrone Methode aufgerufen, landet eine Ausnahme nirgends und beendet
+/// den Prozess wortlos — das Programm verschwindet dann einfach aus dem
+/// Infobereich. Deshalb geht jede Aktion durch diese Klammer.
+/// </remarks>
+internal static class Safe
+{
+    public static void Run(Action work)
+    {
+        try { work(); }
+        catch (Exception error) { Report(error); }
+    }
+
+    public static async void Run(Func<Task> work)
+    {
+        try { await work(); }
+        catch (Exception error) { Report(error); }
+    }
+
+    public static void Report(Exception error)
+    {
+        Log.Error($"{error.GetType().Name}: {error.Message}");
+        Log.Error(error.StackTrace ?? "(kein Aufrufverlauf)");
+        MessageBox.Show(
+            $"{error.Message}\n\nEinzelheiten stehen im Protokoll.",
+            "AGFEO Presence Bridge", MessageBoxButtons.OK, MessageBoxIcon.Warning);
     }
 }
 
@@ -189,6 +253,21 @@ internal static class Program
         // würden gegeneinander arbeiten.
         using var single = new Mutex(true, "AgfeoPresenceBridge.SingleInstance", out bool first);
         if (!first) return;
+
+        // Ohne diese beiden Netze beendet sich das Programm bei jedem
+        // unbehandelten Fehler ohne eine Spur — und im Infobereich ist dann
+        // schlicht nichts mehr.
+        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+        Application.ThreadException += (_, args) => Safe.Report(args.Exception);
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+        {
+            if (args.ExceptionObject is Exception error) Safe.Report(error);
+        };
+        TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            Log.Error($"Unbeachtete Aufgabe: {args.Exception.Message}");
+            args.SetObserved();
+        };
 
         ApplicationConfiguration.Initialize();
         Application.Run(new TrayApplication());

@@ -49,19 +49,39 @@ public sealed class AuthService : ITokenSource
             // unter „Mobile Geräte- und Desktopanwendungen“ hinterlegt sein.
             .WithRedirectUri("http://localhost")
             .Build();
+        Log.Info("Anmeldung eingerichtet");
 
         BindCache(_app.UserTokenCache);
     }
 
-    /// <summary>Öffnet das Anmeldefenster.</summary>
+    /// <summary>Öffnet die Anmeldung im Standardbrowser.</summary>
+    /// <remarks>
+    /// Bewusst der Systembrowser statt des eingebetteten Fensters: Letzteres
+    /// setzt WebView2 voraus, das auf einem frisch aufgesetzten Windows fehlen
+    /// kann. Fehlt es, käme statt eines Anmeldefensters eine Ausnahme — und
+    /// eine bereits bestehende Browser-Anmeldung wird so gleich mitgenutzt.
+    /// </remarks>
     public async Task<bool> SignInAsync()
     {
-        if (_app is null) return false;
+        if (_app is null)
+        {
+            Log.Error("Anmeldung ohne Tenant- und Client-ID nicht möglich");
+            return false;
+        }
+
         try
         {
             AuthenticationResult result = await _app
                 .AcquireTokenInteractive(Scopes)
                 .WithPrompt(Prompt.SelectAccount)
+                .WithUseEmbeddedWebView(false)
+                .WithSystemWebViewOptions(new SystemWebViewOptions
+                {
+                    HtmlMessageSuccess =
+                        "<html><body style='font-family:Segoe UI;padding:3em'>"
+                        + "<h2>Anmeldung abgeschlossen</h2>"
+                        + "<p>Dieses Fenster kann geschlossen werden.</p></body></html>",
+                })
                 .ExecuteAsync();
             Log.Info("Anmeldung erfolgreich");
             return result.AccessToken.Length > 0;
