@@ -111,12 +111,18 @@ public sealed class AppModel : IDisposable
         Changed?.Invoke();
     }
 
-    public async Task SignInAsync()
+    /// <returns>Ob am Ende eine gültige Anmeldung steht.</returns>
+    public async Task<bool> SignInAsync()
     {
-        if (!await _auth.SignInAsync()) return;
+        if (!await _auth.SignInAsync())
+        {
+            Changed?.Invoke();
+            return false;
+        }
         await RefreshAccountAsync();
         StartPolling();
         Changed?.Invoke();
+        return IsSignedIn;
     }
 
     public async Task SignOutAsync()

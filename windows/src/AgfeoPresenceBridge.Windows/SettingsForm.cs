@@ -39,6 +39,8 @@ internal sealed class SettingsForm : Form
 {
     private readonly AppModel _model;
     private readonly Settings _draft;
+    private Label? _accountLabel;
+    private Button? _signInButton;
 
     public SettingsForm(AppModel model)
     {
@@ -48,13 +50,19 @@ internal sealed class SettingsForm : Form
         _draft = Clone(model.Settings);
 
         Text = "AGFEO Presence Bridge — Einstellungen";
-        ClientSize = new System.Drawing.Size(700, 620);
-        MinimumSize = new System.Drawing.Size(640, 520);
+        Font = SystemFonts.MessageBoxFont!;
+        AutoScaleMode = AutoScaleMode.Dpi;
         StartPosition = FormStartPosition.CenterScreen;
         MinimizeBox = false;
-        AutoScaleMode = AutoScaleMode.Dpi;
-        Font = SystemFonts.MessageBoxFont!;
         ShowInTaskbar = true;
+
+        // Größe in Vielfachen der Zeilenhöhe statt in Pixeln: Bei einer
+        // Anzeigeskalierung über 100 % wächst die Schrift, eine feste
+        // Pixelangabe aber nicht — dann steht der Inhalt in einem zu engen
+        // Fenster und muss von Hand aufgezogen werden.
+        int unit = Font.Height;
+        ClientSize = new System.Drawing.Size(unit * 42, unit * 34);
+        MinimumSize = new System.Drawing.Size(unit * 34, unit * 26);
 
         var tabs = new TabControl { Dock = DockStyle.Fill, Padding = new System.Drawing.Point(12, 6) };
         tabs.TabPages.Add(AccountTab());
@@ -132,7 +140,7 @@ internal sealed class SettingsForm : Form
     {
         Text = text,
         AutoSize = true,
-        MaximumSize = new System.Drawing.Size(620, 0),
+        MaximumSize = new System.Drawing.Size(560, 0),
         ForeColor = System.Drawing.SystemColors.GrayText,
         Margin = new Padding(0, 4, 0, 10),
     };
@@ -190,6 +198,17 @@ internal sealed class SettingsForm : Form
         return picker;
     }
 
+    private string AccountText => $"Angemeldet als: {_model.AccountDescription}";
+
+    private string SignInText => _model.IsSignedIn ? "Abmelden" : "Bei Microsoft anmelden…";
+
+    /// <summary>Zeigt nach dem An- oder Abmelden den neuen Stand.</summary>
+    private void RefreshAccount()
+    {
+        if (_accountLabel is not null) _accountLabel.Text = AccountText;
+        if (_signInButton is not null) _signInButton.Text = SignInText;
+    }
+
     // MARK: Konto
 
     private TabPage AccountTab()
@@ -197,20 +216,49 @@ internal sealed class SettingsForm : Form
         (TabPage page, TableLayoutPanel rows) = Page("Konto");
 
         Add(rows, Head("Anmeldung"));
-        Add(rows, new Label { Text = $"Angemeldet als: {_model.AccountDescription}", AutoSize = true });
+        _accountLabel = new Label { Text = AccountText, AutoSize = true };
+        Add(rows, _accountLabel);
 
-        Button signIn = Ui.Push(_model.IsSignedIn ? "Abmelden" : "Bei Microsoft anmelden…", 220);
-        signIn.Margin = new Padding(0, 8, 0, 4);
-        signIn.Click += (_, _) => Safe.Run(async () =>
+        _signInButton = Ui.Push(SignInText, 220);
+        _signInButton.Margin = new Padding(0, 8, 0, 4);
+        _signInButton.Click += (_, _) => Safe.Run(async () =>
         {
-            // Vorher sichern: Sonst meldet sich das Programm mit den alten IDs
-            // an, während im Feld schon die neuen stehen.
-            await _model.ApplySettingsAsync(_draft);
-            if (_model.IsSignedIn) await _model.SignOutAsync();
-            else await _model.SignInAsync();
-            Close();
+            // Das Fenster bleibt offen und zeigt das Ergebnis. Es beim Anmelden
+            // zu schließen ließ jeden Fehlschlag und jeden Abbruch wie ein
+            // Verschwinden des Programms aussehen.
+            _signInButton.Enabled = false;
+            _signInButton.Text = "Anmeldung läuft…";
+            try
+            {
+                // Vorher sichern: Sonst meldet sich das Programm mit den alten
+                // IDs an, während im Feld schon die neuen stehen.
+                await _model.ApplySettingsAsync(_draft);
+
+                if (_model.IsSignedIn) await _model.SignOutAsync();
+                else if (!_model.IsConfigured)
+                {
+                    MessageBox.Show(this,
+                        "Tenant-ID und Client-ID fehlen. Die Einrichtung unten "
+                        + "beschreibt, wo sie herkommen.",
+                        "Noch nicht eingerichtet",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                else if (!await _model.SignInAsync())
+                {
+                    MessageBox.Show(this,
+                        "Die Anmeldung wurde nicht abgeschlossen. Einzelheiten "
+                        + "stehen im Protokoll.",
+                        "Nicht angemeldet",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+            }
+            finally
+            {
+                _signInButton.Enabled = true;
+                RefreshAccount();
+            }
         });
-        Add(rows, signIn);
+        Add(rows, _signInButton);
         Add(rows, Note(
             "Die Anmeldung öffnet sich im Standardbrowser. Das Programm liest "
             + "ausschließlich die eigene Teams-Präsenz; das Aktualisierungstoken "
@@ -538,9 +586,13 @@ internal sealed class SetupGuideForm : Form
     public SetupGuideForm()
     {
         Text = "Einrichtung";
-        ClientSize = new System.Drawing.Size(700, 620);
-        StartPosition = FormStartPosition.CenterParent;
         Font = SystemFonts.MessageBoxFont!;
+        AutoScaleMode = AutoScaleMode.Dpi;
+        StartPosition = FormStartPosition.CenterParent;
+
+        int unit = Font.Height;
+        ClientSize = new System.Drawing.Size(unit * 44, unit * 34);
+        MinimumSize = new System.Drawing.Size(unit * 34, unit * 24);
 
         var text = new TextBox
         {
