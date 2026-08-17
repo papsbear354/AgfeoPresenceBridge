@@ -12,6 +12,29 @@ namespace AgfeoPresenceBridge.Windows;
 /// selbst bestimmen. Ein Fließlayout mit von Hand gesetzten Positionen sah bei
 /// abweichender Schriftgröße oder Skalierung verschoben aus.
 /// </remarks>
+/// <summary>Gemeinsame Bausteine der Fenster.</summary>
+internal static class Ui
+{
+    /// <summary>
+    /// Schaltfläche, die ihre Größe aus Text und Schriftgröße bestimmt.
+    /// </summary>
+    /// <remarks>
+    /// Feste Maße in Pixeln halten nicht: Bei einer Anzeigeskalierung über
+    /// 100 % wächst die Schrift, der Rahmen aber nicht — dann steht die
+    /// Beschriftung nur noch zur Hälfte im Knopf. Die Mindestbreite sorgt
+    /// dafür, dass kurze Beschriftungen trotzdem gleich breit wirken.
+    /// </remarks>
+    public static Button Push(string text, int minimumWidth = 130) => new()
+    {
+        Text = text,
+        AutoSize = true,
+        AutoSizeMode = AutoSizeMode.GrowAndShrink,
+        MinimumSize = new System.Drawing.Size(minimumWidth, 0),
+        Padding = new Padding(12, 6, 12, 6),
+        Margin = new Padding(0, 4, 8, 4),
+    };
+}
+
 internal sealed class SettingsForm : Form
 {
     private readonly AppModel _model;
@@ -41,21 +64,23 @@ internal sealed class SettingsForm : Form
         tabs.TabPages.Add(ControlsTab());
         tabs.TabPages.Add(TimingTab());
 
-        var save = new Button { Text = "Sichern", Width = 120, Height = 30, DialogResult = DialogResult.OK };
+        Button save = Ui.Push("Sichern");
+        save.DialogResult = DialogResult.OK;
         save.Click += (_, _) => Safe.Run(async () =>
         {
             await _model.ApplySettingsAsync(_draft);
             Close();
         });
 
-        var cancel = new Button { Text = "Abbrechen", Width = 120, Height = 30 };
+        Button cancel = Ui.Push("Abbrechen");
         cancel.Click += (_, _) => Close();
 
         var buttons = new FlowLayoutPanel
         {
             Dock = DockStyle.Bottom,
             FlowDirection = FlowDirection.RightToLeft,
-            Height = 48,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
             Padding = new Padding(12, 8, 12, 8),
         };
         buttons.Controls.Add(save);
@@ -174,13 +199,8 @@ internal sealed class SettingsForm : Form
         Add(rows, Head("Anmeldung"));
         Add(rows, new Label { Text = $"Angemeldet als: {_model.AccountDescription}", AutoSize = true });
 
-        var signIn = new Button
-        {
-            Text = _model.IsSignedIn ? "Abmelden" : "Bei Microsoft anmelden…",
-            Width = 220,
-            Height = 30,
-            Margin = new Padding(0, 8, 0, 4),
-        };
+        Button signIn = Ui.Push(_model.IsSignedIn ? "Abmelden" : "Bei Microsoft anmelden…", 220);
+        signIn.Margin = new Padding(0, 8, 0, 4);
         signIn.Click += (_, _) => Safe.Run(async () =>
         {
             // Vorher sichern: Sonst meldet sich das Programm mit den alten IDs
@@ -214,7 +234,7 @@ internal sealed class SettingsForm : Form
         Add(rows, Field("Tenant-ID", tenant));
         Add(rows, Field("Client-ID", client));
 
-        var guide = new Button { Text = "Einrichtung anzeigen…", Width = 220, Height = 30 };
+        Button guide = Ui.Push("Einrichtung anzeigen…", 220);
         guide.Click += (_, _) => Safe.Run(() => new SetupGuideForm().ShowDialog(this));
         Add(rows, guide);
         Add(rows, Note(
@@ -241,7 +261,7 @@ internal sealed class SettingsForm : Form
         Add(rows, baseBox);
 
         Add(rows, Head("Bekannte Profile"));
-        var list = new ListBox { Width = 320, Height = 150 };
+        var list = new ListBox { Width = 320, Height = 150, Anchor = AnchorStyles.Left | AnchorStyles.Right };
         list.Items.AddRange([.. _draft.KnownProfiles]);
         Add(rows, list);
 
@@ -249,7 +269,7 @@ internal sealed class SettingsForm : Form
         Add(rows, entry);
 
         var buttons = new FlowLayoutPanel { AutoSize = true, Margin = new Padding(0, 4, 0, 0) };
-        var add = new Button { Text = "Hinzufügen", Width = 130, Height = 28 };
+        Button add = Ui.Push("Hinzufügen");
         add.Click += (_, _) => Safe.Run(() =>
         {
             string name = entry.Text.Trim();
@@ -260,7 +280,7 @@ internal sealed class SettingsForm : Form
             entry.Clear();
         });
 
-        var remove = new Button { Text = "Entfernen", Width = 130, Height = 28 };
+        Button remove = Ui.Push("Entfernen");
         remove.Click += (_, _) => Safe.Run(() =>
         {
             if (list.SelectedItem is not string name || name == _draft.BaseProfile) return;
@@ -269,7 +289,7 @@ internal sealed class SettingsForm : Form
             baseBox.Items.Remove(name);
         });
 
-        var test = new Button { Text = "Testen", Width = 130, Height = 28 };
+        Button test = Ui.Push("Testen");
         test.Click += (_, _) => Safe.Run(async () =>
         {
             if (list.SelectedItem is string name) await _model.TestAsync(name);
@@ -295,7 +315,7 @@ internal sealed class SettingsForm : Form
 
         var grid = new DataGridView
         {
-            Width = 620,
+            Anchor = AnchorStyles.Left | AnchorStyles.Right,
             Height = 240,
             AllowUserToAddRows = false,
             AllowUserToResizeRows = false,
@@ -351,13 +371,13 @@ internal sealed class SettingsForm : Form
         Add(rows, grid);
 
         var buttons = new FlowLayoutPanel { AutoSize = true, Margin = new Padding(0, 4, 0, 0) };
-        var addRule = new Button { Text = "Regel hinzufügen", Width = 170, Height = 28 };
+        Button addRule = Ui.Push("Regel hinzufügen", 170);
         addRule.Click += (_, _) => Safe.Run(() =>
         {
             grid.Rows.Add(true, "InACall", _draft.KnownProfiles.FirstOrDefault() ?? "");
             ReadBack();
         });
-        var removeRule = new Button { Text = "Regel entfernen", Width = 170, Height = 28 };
+        Button removeRule = Ui.Push("Regel entfernen", 170);
         removeRule.Click += (_, _) => Safe.Run(() =>
         {
             if (grid.CurrentRow is not null && !grid.CurrentRow.IsNewRow)
@@ -403,8 +423,9 @@ internal sealed class SettingsForm : Form
                 Text = names[index],
                 Checked = _draft.WorkingHours.Days.Contains(weekday),
                 Appearance = Appearance.Button,
-                Width = 52,
-                Height = 28,
+                AutoSize = true,
+                MinimumSize = new System.Drawing.Size(46, 0),
+                Padding = new Padding(6, 4, 6, 4),
                 TextAlign = System.Drawing.ContentAlignment.MiddleCenter,
             };
             box.CheckedChanged += (_, _) => Safe.Run(() =>
@@ -591,17 +612,18 @@ internal sealed class SetupGuideForm : Form
             ]),
         };
 
-        var copyPath = new Button { Text = "Skriptpfad kopieren", Width = 190, Height = 30 };
+        Button copyPath = Ui.Push("Skriptpfad kopieren", 190);
         copyPath.Click += (_, _) => Safe.Run(() => Clipboard.SetText(KlickScript.InstalledPath));
 
-        var close = new Button { Text = "Fertig", Width = 120, Height = 30 };
+        Button close = Ui.Push("Fertig");
         close.Click += (_, _) => Close();
 
         var bar = new FlowLayoutPanel
         {
             Dock = DockStyle.Bottom,
             FlowDirection = FlowDirection.RightToLeft,
-            Height = 48,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
             Padding = new Padding(12, 8, 12, 8),
         };
         bar.Controls.Add(close);

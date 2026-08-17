@@ -60,6 +60,9 @@ public sealed class AppModel : IDisposable
         _ = RestoreSessionAsync();
     }
 
+    /// <summary>Sind Tenant- und Client-ID hinterlegt?</summary>
+    public bool IsConfigured => _auth.IsConfigured;
+
     public string? LastSentProfile => _controller.LastSentProfile;
     public DateTime? LastSentAt => _controller.LastSentAt;
     public string? HeldProfile => _controller.HeldProfile;

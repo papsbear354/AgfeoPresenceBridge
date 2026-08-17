@@ -44,6 +44,22 @@ internal sealed class TrayApplication : ApplicationContext
         _model.Changed += OnModelChanged;
         Application.ApplicationExit += (_, _) => Safe.Run(async () => await _model.ShutdownAsync());
         Refresh();
+
+        // Ohne Tenant- und Client-ID kann das Programm nichts tun. Statt nur
+        // ein Symbol im Infobereich zu hinterlassen, das niemand sucht, zeigt
+        // es dann gleich, was zu tun ist. Über einen Zeitgeber, weil die
+        // Nachrichtenschleife im Konstruktor noch nicht läuft.
+        if (!_model.IsConfigured)
+        {
+            var startup = new System.Windows.Forms.Timer { Interval = 250 };
+            startup.Tick += (_, _) =>
+            {
+                startup.Stop();
+                startup.Dispose();
+                Safe.Run(ShowSettings);
+            };
+            startup.Start();
+        }
     }
 
     private void OnModelChanged()
