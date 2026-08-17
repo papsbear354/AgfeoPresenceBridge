@@ -43,6 +43,18 @@ internal sealed class TrayApplication : ApplicationContext
 
         _model.Changed += OnModelChanged;
         Application.ApplicationExit += (_, _) => Safe.Run(async () => await _model.ShutdownAsync());
+
+        // Wechselt Windows zwischen hellem und dunklem Thema, wechselt auch der
+        // Untergrund der Taskleiste — die Symbole müssen dann neu entstehen.
+        Microsoft.Win32.SystemEvents.UserPreferenceChanged += (_, args) =>
+        {
+            if (args.Category is not (Microsoft.Win32.UserPreferenceCategory.General
+                or Microsoft.Win32.UserPreferenceCategory.Color
+                or Microsoft.Win32.UserPreferenceCategory.VisualStyle)) return;
+            TrayIcons.Forget();
+            OnModelChanged();
+        };
+
         Refresh();
 
         // Ohne Tenant- und Client-ID kann das Programm nichts tun. Statt nur
