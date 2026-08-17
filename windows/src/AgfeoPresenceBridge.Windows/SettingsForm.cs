@@ -41,6 +41,8 @@ internal sealed class SettingsForm : Form
     private readonly Settings _draft;
     private Label? _accountLabel;
     private Button? _signInButton;
+    private Button? _saveButton;
+    private bool _closingConfirmed;
 
     public SettingsForm(AppModel model)
     {
@@ -72,16 +74,14 @@ internal sealed class SettingsForm : Form
         tabs.TabPages.Add(ControlsTab());
         tabs.TabPages.Add(TimingTab());
 
-        Button save = Ui.Push("Sichern");
-        save.DialogResult = DialogResult.OK;
-        save.Click += (_, _) => Safe.Run(async () =>
-        {
-            await _model.ApplySettingsAsync(_draft);
-            Close();
-        });
+        // Sichern lässt das Fenster offen: Bei sechs Reitern stellt man selten
+        // nur eine Sache ein, und ein Dialog, der sich nach jedem Sichern
+        // schließt, zwingt zum Neuöffnen.
+        _saveButton = Ui.Push("Sichern");
+        _saveButton.Click += (_, _) => Safe.Run(async () => await SaveAsync());
 
-        Button cancel = Ui.Push("Abbrechen");
-        cancel.Click += (_, _) => Close();
+        Button close = Ui.Push("Schließen");
+        close.Click += (_, _) => Close();
 
         var buttons = new FlowLayoutPanel
         {
@@ -91,11 +91,33 @@ internal sealed class SettingsForm : Form
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
             Padding = new Padding(12, 8, 12, 8),
         };
-        buttons.Controls.Add(save);
-        buttons.Controls.Add(cancel);
+        buttons.Controls.Add(close);
+        buttons.Controls.Add(_saveButton);
 
-        AcceptButton = save;
-        CancelButton = cancel;
+        AcceptButton = _saveButton;
+        CancelButton = close;
+
+        // Ungesichertes nicht stillschweigend wegwerfen — auch nicht beim
+        // Schließkreuz.
+        FormClosing += (_, args) =>
+        {
+            if (!HasUnsavedChanges) return;
+            DialogResult answer = MessageBox.Show(this,
+                "Es gibt ungesicherte Änderungen. Vor dem Schließen sichern?",
+                "Einstellungen", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+
+            if (answer == DialogResult.Cancel) { args.Cancel = true; return; }
+            if (answer == DialogResult.Yes)
+            {
+                args.Cancel = true;
+                Safe.Run(async () =>
+                {
+                    await SaveAsync();
+                    _closingConfirmed = true;
+                    Close();
+                });
+            }
+        };
 
         Controls.Add(tabs);
         Controls.Add(buttons);
@@ -196,6 +218,30 @@ internal sealed class SettingsForm : Form
         picker.ValueChanged += (_, _) =>
             set(picker.Value.Hour * 60 + picker.Value.Minute);
         return picker;
+    }
+
+    /// <summary>Weicht der Entwurf vom gesicherten Stand ab?</summary>
+    private bool HasUnsavedChanges =>
+        !_closingConfirmed
+        && System.Text.Json.JsonSerializer.Serialize(_draft, SettingsStore.Options)
+           != System.Text.Json.JsonSerializer.Serialize(_model.Settings, SettingsStore.Options);
+
+    /// <summary>Übernimmt den Entwurf und bestätigt das kurz an der Schaltfläche.</summary>
+    private async Task SaveAsync()
+    {
+        if (_saveButton is not null)
+        {
+            _saveButton.Enabled = false;
+            _saveButton.Text = "Gesichert";
+        }
+
+        await _model.ApplySettingsAsync(_draft);
+
+        if (_saveButton is null) return;
+        await Task.Delay(900);
+        if (_saveButton.IsDisposed) return;
+        _saveButton.Text = "Sichern";
+        _saveButton.Enabled = true;
     }
 
     private string AccountText => $"Angemeldet als: {_model.AccountDescription}";
