@@ -127,9 +127,14 @@ public sealed class AuthService : ITokenSource
                 .ExecuteAsync();
             return result.AccessToken;
         }
-        catch (MsalUiRequiredException)
+        catch (MsalUiRequiredException error)
         {
-            Log.Error("Anmeldung nicht mehr gültig — neue Anmeldung nötig");
+            // Der Fehlercode unterscheidet zwei sehr verschiedene Fälle: einen
+            // verlorenen Zwischenspeicher auf dieser Seite und eine Vorgabe des
+            // Tenants, die eine erneute Anmeldung verlangt (etwa eine
+            // Anmeldehäufigkeit aus dem bedingten Zugriff). Ohne ihn sucht man
+            // den Fehler an der falschen Stelle.
+            Log.Error($"Anmeldung nicht mehr gültig ({error.ErrorCode}): {error.Message}");
             return null;
         }
         catch (Exception error)
@@ -139,8 +144,13 @@ public sealed class AuthService : ITokenSource
         }
     }
 
-    public async Task<bool> HasAccountAsync() =>
-        _app is not null && (await _app.GetAccountsAsync()).Any();
+    public async Task<bool> HasAccountAsync()
+    {
+        if (_app is null) return false;
+        int count = (await _app.GetAccountsAsync()).Count();
+        Log.Info($"Bekannte Konten im Zwischenspeicher: {count}");
+        return count > 0;
+    }
 
     /// <summary>
     /// Legt MSALs Zwischenspeicher verschlüsselt ab, damit die Anmeldung einen

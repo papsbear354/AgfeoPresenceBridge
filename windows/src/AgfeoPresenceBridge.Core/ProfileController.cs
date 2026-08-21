@@ -65,6 +65,18 @@ public sealed class ProfileController(
     /// <summary>Steht gerade ein Regelprofil? Steuert das kürzere Poll-Intervall.</summary>
     public bool IsOnRuleProfile => LastSentProfile is not null && LastSentProfile != BaseProfile;
 
+    /// <summary>
+    /// Das Profil, das vor dem Verschwinden noch gesendet werden muss — oder
+    /// <c>null</c>, wenn ohnehin das Grundprofil steht.
+    /// </summary>
+    /// <remarks>
+    /// Synchron abfragbar, weil beim Herunterfahren keine Zeit für Umwege
+    /// bleibt. Was das Programm nicht selbst verstellt hat, fasst es auch nicht
+    /// an.
+    /// </remarks>
+    public string? ProfileNeededOnExit =>
+        LastSentProfile is not null && LastSentProfile != BaseProfile ? BaseProfile : null;
+
     public async Task ApplyAsync(Settings updated)
     {
         await _gate.WaitAsync();

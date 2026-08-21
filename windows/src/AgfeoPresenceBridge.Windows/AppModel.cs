@@ -50,6 +50,7 @@ public sealed class AppModel : IDisposable
 
         KlickScript.Install();
         _auth.Configure(Settings);
+        ReconcileAutostart();
 
         WithinWorkingHours = Settings.WorkingHours.Contains(DateTime.Now);
         StartScheduleWatch();
@@ -352,6 +353,21 @@ public sealed class AppModel : IDisposable
     }
 
     /// <summary>
+    /// Gleicht den gewünschten mit dem tatsächlichen Zustand ab.
+    /// </summary>
+    /// <remarks>
+    /// Ohne das bliebe der Autostart wirkungslos: Die Einstellung steht auf
+    /// „an“, eingetragen wird sie aber nur, wenn jemand den Schalter umlegt.
+    /// Nach einer Neuinstallation startet das Programm dann nie von selbst —
+    /// und was es beim Herunterfahren zurückgesetzt hätte, bleibt liegen.
+    /// </remarks>
+    private void ReconcileAutostart()
+    {
+        if (Settings.LaunchAtLogin != Autostart.IsEnabled)
+            Autostart.Set(Settings.LaunchAtLogin);
+    }
+
+    /// <summary>
     /// Beim Beenden zurücknehmen, was das Programm selbst verstellt hat — sonst
     /// bliebe das Telefon umgeleitet.
     /// </summary>
@@ -399,6 +415,26 @@ public sealed class AppModel : IDisposable
         : $"Telefon: {ActiveCall.State.Text()}, "
           + $"{(ActiveCall.IsOutbound ? "abgehend" : "ankommend")} "
           + (ActiveCall.Number.Length > 0 ? ActiveCall.Number : "unbekannt");
+
+    /// <summary>
+    /// Letzte Handlung beim Herunterfahren oder Abmelden.
+    /// </summary>
+    /// <remarks>
+    /// Windows räumt die Sitzung ab, sobald alle Programme geantwortet haben —
+    /// für einen Aufruf über das Netz ist das zu knapp. Das Rufprofil geht
+    /// deshalb ohne Umweg an das Dashboard; der Teams-Status bleibt liegen und
+    /// verfällt von selbst nach zwei Stunden.
+    /// </remarks>
+    public void ShutdownNow()
+    {
+        string? needed = _controller.ProfileNeededOnExit;
+        if (needed is null) return;
+
+        // Log.Write schreibt hier synchron; beim Herunterfahren bleibt die
+        // Zeile also erhalten.
+        Log.Info($"Sitzung endet, schalte zurück auf \"{needed}\"");
+        _bridge.ActivateNow(needed);
+    }
 
     public void Dispose()
     {

@@ -56,6 +56,42 @@ public sealed class AgfeoBridge : IProfileActivator
 
     public static bool IsDashboardRunning => Process.GetProcessesByName(ProcessName).Length > 0;
 
+    /// <summary>
+    /// Synchrone Variante für das Ende der Sitzung.
+    /// </summary>
+    /// <remarks>
+    /// Startet das Dashboard bewusst nicht: Beim Herunterfahren bleibt dafür
+    /// keine Zeit, und ohne laufendes Dashboard lässt sich die Anlage ohnehin
+    /// nicht schalten.
+    /// </remarks>
+    public bool ActivateNow(string profileName)
+    {
+        string? url = BuildUrl(profileName);
+        if (url is null) return false;
+
+        if (!IsDashboardRunning)
+        {
+            Log.Error($"Dashboard läuft nicht — \"{profileName}\" kann jetzt nicht mehr gesendet werden");
+            return false;
+        }
+
+        try
+        {
+            using var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = url,
+                UseShellExecute = true,
+                WindowStyle = ProcessWindowStyle.Minimized,
+            });
+            return true;
+        }
+        catch (Exception error)
+        {
+            Log.Error($"Profil \"{profileName}\" konnte nicht gesendet werden: {error.Message}");
+            return false;
+        }
+    }
+
     public Task<bool> ActivateAsync(string profileName)
     {
         string? url = BuildUrl(profileName);

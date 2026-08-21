@@ -44,6 +44,13 @@ internal sealed class TrayApplication : ApplicationContext
         _model.Changed += OnModelChanged;
         Application.ApplicationExit += (_, _) => Safe.Run(async () => await _model.ShutdownAsync());
 
+        // Beim Herunterfahren oder Abmelden feuert ApplicationExit nicht
+        // verlässlich — Windows räumt die Sitzung ab, sobald alle Programme
+        // geantwortet haben. Ohne das hier bliebe das Telefon über Nacht
+        // umgeleitet, und am nächsten Morgen stünde die Anlage immer noch auf
+        // dem Profil vom Vorabend.
+        Microsoft.Win32.SystemEvents.SessionEnding += (_, _) => Safe.Run(_model.ShutdownNow);
+
         // Wechselt Windows zwischen hellem und dunklem Thema, wechselt auch der
         // Untergrund der Taskleiste — die Symbole müssen dann neu entstehen.
         Microsoft.Win32.SystemEvents.UserPreferenceChanged += (_, args) =>

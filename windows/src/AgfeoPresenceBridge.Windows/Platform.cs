@@ -206,8 +206,25 @@ public static class TokenStore
 {
     private static string Path_ => Path.Combine(SettingsStore.Directory, "token.bin");
 
+    /// <summary>
+    /// Gesetzt, wenn das Lesen einmal fehlgeschlagen ist.
+    /// </summary>
+    /// <remarks>
+    /// Dann wird nicht mehr geschrieben. Sonst überschriebe ein leerer
+    /// Zwischenspeicher — die Folge eines Lesefehlers — den vorhandenen
+    /// Eintrag endgültig, und aus einer vorübergehenden Störung würde ein
+    /// dauerhafter Verlust der Anmeldung.
+    /// </remarks>
+    private static bool _readFailed;
+
     public static void Save(string token)
     {
+        if (_readFailed)
+        {
+            Log.Notice("Token wird nicht überschrieben, weil das Lesen zuvor scheiterte");
+            return;
+        }
+
         try
         {
             Directory.CreateDirectory(SettingsStore.Directory);
@@ -225,14 +242,30 @@ public static class TokenStore
     {
         try
         {
-            if (!File.Exists(Path_)) return null;
+            if (!File.Exists(Path_))
+            {
+                Log.Info("Kein abgelegtes Token vorhanden");
+                return null;
+            }
+
             byte[] plain = ProtectedData.Unprotect(
                 File.ReadAllBytes(Path_), null, DataProtectionScope.CurrentUser);
             return Encoding.UTF8.GetString(plain);
         }
-        catch
+        catch (Exception error)
         {
-            // Unlesbar heißt: neu anmelden. Kein Grund, das Programm anzuhalten.
+            // Die Datei beiseitelegen statt sie zu verlieren: Beim nächsten Mal
+            // lässt sich so nachsehen, woran es lag.
+            _readFailed = true;
+            Log.Error($"Abgelegtes Token nicht lesbar: {error.Message}");
+            try
+            {
+                string broken = Path_ + ".unlesbar";
+                if (File.Exists(broken)) File.Delete(broken);
+                File.Move(Path_, broken);
+                Log.Error($"Datei beiseitegelegt: {broken}");
+            }
+            catch { }
             return null;
         }
     }
