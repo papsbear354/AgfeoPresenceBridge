@@ -34,7 +34,7 @@ struct Backoff: Equatable, Sendable {
 actor PresencePoller {
     typealias Sink = @Sendable (PresenceResult) async -> Void
 
-    private let auth: AuthClient
+    private let auth: any TokenProviding
     private let client: PresenceClient
     private let sink: Sink
 
@@ -50,7 +50,7 @@ actor PresencePoller {
     private var lastLogged: PresenceResult?
 
     init(
-        auth: AuthClient,
+        auth: any TokenProviding,
         client: PresenceClient = PresenceClient(),
         normalInterval: TimeInterval,
         fastInterval: TimeInterval,
@@ -123,6 +123,27 @@ actor PresencePoller {
         var result: PresenceResult
         var forcedDelay: TimeInterval?
         var stopsPolling = false
+
+        /// Unterscheidet eine erloschene Anmeldung von einer bloßen Störung.
+        ///
+        /// Vorher galt jeder Fehler als „Anmeldung weg“ und beendete die
+        /// Abfrage endgültig. Beim Aufwachen aus dem Ruhezustand steht das
+        /// Netz aber oft noch nicht — dann scheiterte die Token-Erneuerung an
+        /// der Verbindung, und die App schwieg für den Rest des Tages, bis sich
+        /// jemand von Hand neu anmeldete. Nur `invalidGrant` und
+        /// `notSignedIn` bedeuten wirklich, dass niemand mehr angemeldet ist.
+        static func from(_ error: any Error) -> PollStep {
+            switch error as? AuthError {
+            case .invalidGrant, .notSignedIn:
+                return PollStep(result: .unknown(.notSignedIn), stopsPolling: true)
+            case .server(let code, _):
+                return PollStep(result: .unknown(.network("Anmeldedienst: \(code)")))
+            default:
+                let text = (error as? LocalizedError)?.errorDescription
+                    ?? error.localizedDescription
+                return PollStep(result: .unknown(.network(text)))
+            }
+        }
     }
 
     private func poll() async -> PollStep {
@@ -130,8 +151,7 @@ actor PresencePoller {
         do {
             token = try await auth.validAccessToken()
         } catch {
-            // Anmeldung weg — hier wird nicht im Hintergrund weiterversucht.
-            return PollStep(result: .unknown(.notSignedIn), stopsPolling: true)
+            return PollStep.from(error)
         }
 
         var fetch = await client.fetch(accessToken: token)
@@ -143,7 +163,7 @@ actor PresencePoller {
                 let fresh = try await auth.refreshedAccessToken()
                 fetch = await client.fetch(accessToken: fresh)
             } catch {
-                return PollStep(result: .unknown(.notSignedIn), stopsPolling: true)
+                return PollStep.from(error)
             }
         }
 

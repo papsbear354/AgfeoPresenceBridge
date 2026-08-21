@@ -4,10 +4,28 @@ using System.Text.Json;
 
 namespace AgfeoPresenceBridge.Core;
 
+/// <summary>Warum kein Token geliefert werden konnte.</summary>
+public enum TokenFailure
+{
+    None,
+    /// <summary>Niemand ist mehr angemeldet — Wiederholen hilft nicht.</summary>
+    SignedOut,
+    /// <summary>Störung, etwa fehlendes Netz. Später erneut versuchen.</summary>
+    Temporary,
+}
+
+/// <param name="Token">Das Zugriffstoken, oder <c>null</c> im Fehlerfall.</param>
+public readonly record struct TokenResult(string? Token, TokenFailure Failure)
+{
+    public static TokenResult Ok(string token) => new(token, TokenFailure.None);
+    public static readonly TokenResult SignedOut = new(null, TokenFailure.SignedOut);
+    public static TokenResult Temporary() => new(null, TokenFailure.Temporary);
+}
+
 /// <summary>Liefert ein gültiges Zugriffstoken; erneuert es bei Bedarf.</summary>
 public interface ITokenSource
 {
-    Task<string?> GetAccessTokenAsync(bool forceRefresh = false);
+    Task<TokenResult> GetAccessTokenAsync(bool forceRefresh = false);
 }
 
 /// <summary>Rohe Antwort des Präsenz-Endpunkts, bevor der Poller sie deutet.</summary>

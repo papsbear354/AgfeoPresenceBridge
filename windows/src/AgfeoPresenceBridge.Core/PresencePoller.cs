@@ -96,20 +96,28 @@ public sealed class PresencePoller(
 
     private async Task<(PresenceResult, TimeSpan?, bool)> PollAsync()
     {
-        string? token = await tokens.GetAccessTokenAsync();
-        if (token is null)
+        // Eine Störung ist keine Abmeldung: Beim Aufwachen steht das Netz oft
+        // noch nicht, und die Token-Erneuerung scheitert dann an der
+        // Verbindung. Würde das die Abfrage beenden, bliebe das Rufprofil den
+        // ganzen Tag stehen, bis sich jemand von Hand neu anmeldet.
+        TokenResult first = await tokens.GetAccessTokenAsync();
+        if (first.Failure is TokenFailure.SignedOut)
             return (new PresenceResult.Unknown(new PollFailure.NotSignedIn()), null, true);
+        if (first.Token is null)
+            return (new PresenceResult.Unknown(new PollFailure.Network("Anmeldung vorübergehend nicht möglich")), null, false);
 
-        PresenceFetch fetch = await client.FetchAsync(token);
+        PresenceFetch fetch = await client.FetchAsync(first.Token);
 
         // Genau ein Wiederholversuch mit frischem Token.
         if (fetch is PresenceFetch.Unauthorized)
         {
             Log.Notice("401 — Token wird erneuert und der Aufruf wiederholt");
-            token = await tokens.GetAccessTokenAsync(forceRefresh: true);
-            if (token is null)
+            TokenResult again = await tokens.GetAccessTokenAsync(forceRefresh: true);
+            if (again.Failure is TokenFailure.SignedOut)
                 return (new PresenceResult.Unknown(new PollFailure.NotSignedIn()), null, true);
-            fetch = await client.FetchAsync(token);
+            if (again.Token is null)
+                return (new PresenceResult.Unknown(new PollFailure.Network("Anmeldung vorübergehend nicht möglich")), null, false);
+            fetch = await client.FetchAsync(again.Token);
         }
 
         return fetch switch

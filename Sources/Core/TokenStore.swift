@@ -59,6 +59,19 @@ struct TokenStore: Sendable {
             guard let data = item as? Data else { return nil }
             return String(data: data, encoding: .utf8)
         case errSecItemNotFound:
+            Log.info(.auth, "Kein Refresh Token in der Keychain")
+            return nil
+        case errSecInteractionNotAllowed:
+            // Der Schlüsselbund ist gesperrt. Kein Grund, die Anmeldung
+            // für verloren zu erklären.
+            Log.error(.auth, "Schlüsselbund gesperrt — Refresh Token gerade nicht lesbar")
+            return nil
+        case errSecAuthFailed:
+            // Tritt auf, wenn die App mit einem anderen Zertifikat signiert
+            // wurde als beim Ablegen: Die Zugriffsliste des Eintrags hängt an
+            // der Signatur.
+            Log.error(.auth, "Zugriff auf den Refresh Token verweigert — "
+                      + "wurde die App neu signiert?")
             return nil
         default:
             Log.error(.auth, "Keychain nicht lesbar (OSStatus \(status))")

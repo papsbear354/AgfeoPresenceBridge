@@ -105,6 +105,14 @@ final class AppModel: ObservableObject {
             write(loaded)
         }
 
+        // Im Testlauf hört das Programm hier auf. Ein Testlauf startet die
+        // vollständige App als Wirt; täte sie dann ihre Arbeit, fragte jeder
+        // Durchlauf nach dem Schlüsselbund-Passwort — die Testfassung ist
+        // ad-hoc signiert und für den Schlüsselbund damit jedes Mal ein
+        // anderes Programm, weshalb auch „Immer erlauben“ nichts hilft. Und im
+        // schlimmsten Fall schaltete ein Testlauf echte Rufprofile um.
+        guard !Log.isRunningTests else { return }
+
         lifecycle.install()
         KlickScript.install()
         observeWake()
@@ -164,6 +172,10 @@ final class AppModel: ObservableObject {
     /// Beim Start: aus dem Refresh Token in der Keychain still wieder anmelden.
     private func restoreSession() async {
         guard await auth.hasStoredCredentials else {
+            // Ohne diese Zeile sieht man nur, dass nichts passiert — nicht,
+            // warum. Genau das hat die Suche nach der täglichen Abmeldung
+            // unnötig schwer gemacht.
+            Log.info(.auth, "Kein Refresh Token lesbar — nicht angemeldet")
             authState = .signedOut
             return
         }

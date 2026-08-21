@@ -61,9 +61,18 @@ enum AuthError: LocalizedError, Equatable {
     }
 }
 
+/// Was der Poller von der Anmeldung braucht.
+///
+/// Als Protokoll, damit sich im Test eine Attrappe einsetzen lässt — etwa
+/// eine, die einen Netzwerkfehler wirft.
+protocol TokenProviding: Sendable {
+    func validAccessToken() async throws -> String
+    func refreshedAccessToken() async throws -> String
+}
+
 /// Authorization Code Flow mit PKCE gegen den tenant-spezifischen Endpunkt
 /// (SPEC §5). Kein MSAL, kein Device Code Flow.
-actor AuthClient {
+actor AuthClient: TokenProviding {
     /// `User.Read` ist zusätzlich zur Hauptspec dabei, damit der Konto-Tab den
     /// angemeldeten Benutzer benennen kann. Die Berechtigung ist im Tenant
     /// delegiert und per Administratorzustimmung erteilt (Nachtrag 01 §1), es

@@ -113,11 +113,11 @@ public sealed class AuthService : ITokenSource
     /// die fehl, ist die Anmeldung weg — dann wird nicht im Hintergrund
     /// weiterversucht, sondern gemeldet.
     /// </summary>
-    public async Task<string?> GetAccessTokenAsync(bool forceRefresh = false)
+    public async Task<TokenResult> GetAccessTokenAsync(bool forceRefresh = false)
     {
-        if (_app is null) return null;
+        if (_app is null) return TokenResult.SignedOut;
         IAccount? account = (await _app.GetAccountsAsync()).FirstOrDefault();
-        if (account is null) return null;
+        if (account is null) return TokenResult.SignedOut;
 
         try
         {
@@ -125,7 +125,7 @@ public sealed class AuthService : ITokenSource
                 .AcquireTokenSilent(Scopes, account)
                 .WithForceRefresh(forceRefresh)
                 .ExecuteAsync();
-            return result.AccessToken;
+            return TokenResult.Ok(result.AccessToken);
         }
         catch (MsalUiRequiredException error)
         {
@@ -135,12 +135,13 @@ public sealed class AuthService : ITokenSource
             // Anmeldehäufigkeit aus dem bedingten Zugriff). Ohne ihn sucht man
             // den Fehler an der falschen Stelle.
             Log.Error($"Anmeldung nicht mehr gültig ({error.ErrorCode}): {error.Message}");
-            return null;
+            return TokenResult.SignedOut;
         }
         catch (Exception error)
         {
-            Log.Error($"Token nicht erneuerbar: {error.Message}");
-            return null;
+            // Netz weg, Dienst gerade nicht erreichbar: später erneut versuchen.
+            Log.Error($"Token vorübergehend nicht erneuerbar: {error.Message}");
+            return TokenResult.Temporary();
         }
     }
 

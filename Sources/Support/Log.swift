@@ -49,9 +49,16 @@ enum Log {
         LogFile.currentFile
     }
 
-    /// Im Testlauf wird nicht protokolliert. Sonst stünden die absichtlich
-    /// erzeugten Fehler der Testfälle im Betriebslog und würden bei einer
-    /// echten Fehlersuche in die Irre führen.
+    /// Läuft das Programm gerade als Wirt eines Testlaufs?
+    ///
+    /// Dann darf es nichts von dem tun, was es im Betrieb tut: nicht
+    /// protokollieren, nicht an den Schlüsselbund, nichts abfragen, nichts an
+    /// der Anlage schalten. Ein Testlauf startet die vollständige App als Wirt
+    /// — ohne diese Bremse fragt jeder Durchlauf nach dem
+    /// Schlüsselbund-Passwort, und im schlimmsten Fall stellte er echte
+    /// Rufprofile um.
+    static var isRunningTests: Bool { isTestRun }
+
     private static let isTestRun: Bool = {
         let environment = ProcessInfo.processInfo.environment
         return environment["XCTestConfigurationFilePath"] != nil

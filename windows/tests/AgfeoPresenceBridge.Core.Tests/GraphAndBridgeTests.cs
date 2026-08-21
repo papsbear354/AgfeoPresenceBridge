@@ -219,3 +219,77 @@ public class BackoffTests
         Assert.Equal(5, backoff.Next().TotalSeconds);
     }
 }
+
+/// <summary>Liefert Token oder scheitert — je nachdem, was der Fall verlangt.</summary>
+public sealed class FakeTokens(TokenResult result) : ITokenSource
+{
+    public int Calls { get; private set; }
+    public TokenResult Result { get; set; } = result;
+
+    public Task<TokenResult> GetAccessTokenAsync(bool forceRefresh = false)
+    {
+        Calls++;
+        return Task.FromResult(Result);
+    }
+}
+
+public class PresencePollerTests
+{
+    static PresencePollerTests() => Log.Enabled = false;
+
+    private static PresencePoller Make(FakeTokens tokens, List<PresenceResult> seen)
+    {
+        var handler = new StubHandler(HttpStatusCode.OK,
+            """{"availability":"Available","activity":"Available"}""");
+        return new PresencePoller(tokens, new PresenceClient(new HttpClient(handler)),
+            result => { lock (seen) seen.Add(result); return Task.CompletedTask; })
+        {
+            NormalInterval = 0.05,
+            FastInterval = 0.05,
+        };
+    }
+
+    /// <summary>
+    /// Der Fall aus dem Betrieb: Beim Aufwachen steht das Netz noch nicht, die
+    /// Token-Erneuerung scheitert an der Verbindung. Früher endete die Abfrage
+    /// daraufhin endgültig und das Rufprofil blieb den ganzen Tag stehen.
+    /// </summary>
+    [Fact]
+    public async Task TemporaryFailureKeepsPolling()
+    {
+        var tokens = new FakeTokens(TokenResult.Temporary());
+        var seen = new List<PresenceResult>();
+        PresencePoller poller = Make(tokens, seen);
+
+        poller.Start();
+        await Task.Delay(400);
+        Assert.True(tokens.Calls > 1, $"nur {tokens.Calls} Versuch(e)");
+
+        // Sobald das Netz zurück ist, läuft es ohne Zutun weiter.
+        tokens.Result = TokenResult.Ok("token");
+        await Task.Delay(400);
+        poller.Stop();
+
+        lock (seen) Assert.Contains(seen, r => r is PresenceResult.Known);
+    }
+
+    [Fact]
+    public async Task SignedOutStopsPolling()
+    {
+        var tokens = new FakeTokens(TokenResult.SignedOut);
+        var seen = new List<PresenceResult>();
+        PresencePoller poller = Make(tokens, seen);
+
+        poller.Start();
+        await Task.Delay(300);
+        poller.Stop();
+
+        // Genau ein Versuch — hier hilft kein Wiederholen.
+        Assert.Equal(1, tokens.Calls);
+        lock (seen)
+        {
+            PresenceResult only = Assert.Single(seen);
+            Assert.IsType<PollFailure.NotSignedIn>(Assert.IsType<PresenceResult.Unknown>(only).Failure);
+        }
+    }
+}

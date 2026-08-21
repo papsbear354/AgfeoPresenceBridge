@@ -132,8 +132,8 @@ public sealed class AppModel : IDisposable
         // käme das Programm nicht mehr an ihn heran.
         if (ActiveCall is not null && Settings.SetTeamsStatusOnCall)
         {
-            string? token = await _auth.GetAccessTokenAsync();
-            if (token is not null) await _presenceWriter.ClearAsync(token);
+            if ((await _auth.GetAccessTokenAsync()).Token is { } token)
+                await _presenceWriter.ClearAsync(token);
         }
         ActiveCall = null;
         StopPolling();
@@ -145,11 +145,13 @@ public sealed class AppModel : IDisposable
 
     private async Task<bool> RefreshAccountAsync()
     {
-        string? token = await _auth.GetAccessTokenAsync();
-        if (token is null)
+        TokenResult result = await _auth.GetAccessTokenAsync();
+        if (result.Token is not { } token)
         {
             IsSignedIn = false;
-            AccountDescription = "Anmeldung nicht mehr gültig";
+            AccountDescription = result.Failure is TokenFailure.SignedOut
+                ? "Anmeldung nicht mehr gültig"
+                : "Anmeldung gerade nicht prüfbar";
             return false;
         }
         IsSignedIn = true;
@@ -252,8 +254,7 @@ public sealed class AppModel : IDisposable
     private async Task ApplyTeamsStatusAsync(bool busy)
     {
         if (!Settings.SetTeamsStatusOnCall || !IsSignedIn) return;
-        string? token = await _auth.GetAccessTokenAsync();
-        if (token is null) return;
+        if ((await _auth.GetAccessTokenAsync()).Token is not { } token) return;
 
         PresenceWriter.WriteResult result = busy
             ? await _presenceWriter.SetBusyAsync(token)
@@ -376,8 +377,8 @@ public sealed class AppModel : IDisposable
         await _controller.StandDownAsync();
         if (ActiveCall is not null && Settings.SetTeamsStatusOnCall)
         {
-            string? token = await _auth.GetAccessTokenAsync();
-            if (token is not null) await _presenceWriter.ClearAsync(token);
+            if ((await _auth.GetAccessTokenAsync()).Token is { } token)
+                await _presenceWriter.ClearAsync(token);
         }
     }
 
